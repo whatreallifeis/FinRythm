@@ -30,3 +30,18 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: gitleaks/gitleaks-action@v2
         env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t finritm .
+      - name: Образ отвечает на сценарий «демо → календарь»
+        run: |
+          docker run -d --name api -p 8000:8000 -e APP_TODAY=2026-09-26 finritm
+          for i in $(seq 1 30); do curl -fsS localhost:8000/api/health && break; sleep 1; done
+          token=$(curl -fsS -X POST localhost:8000/api/auth/demo | python3 -c 'import sys, json; print(json.load(sys.stdin)["token"])')
+          curl -fsS -X POST -H "Authorization: Bearer $token" localhost:8000/api/demo/seed
+          curl -fsS -H "Authorization: Bearer $token" localhost:8000/api/analysis/runway > /dev/null
+          curl -fsS -X POST -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d '{"amount": 14900}' localhost:8000/api/analysis/impulse > /dev/null
+      - if: failure()
+        run: docker logs api
