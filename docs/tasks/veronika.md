@@ -2,9 +2,9 @@
 
 **Роль:** владелец репозитория и интегратор. Ты собираешь части в работающий сервис, отвечаешь за API, хранилище, Docker, CI, деплой и мерж PR.
 **Зона:** `backend/app/api/`, `backend/app/storage/`, `backend/app/main.py`, `backend/app/config.py`, `backend/app/models.py` (контракт), `backend/tests/api/`, `Dockerfile`, `docker-compose.yml`, `.github/`, `requirements*.txt`, `pyproject.toml`, `.env.example`, `CLAUDE.md`, `docs/status/veronika.md`.
-**Ревьюер твоих PR:** Кирилл. **Ты ревьюишь:** PR Кирилла и все PR с меткой `contract`. **Ты мержишь** одобренные PR (Squash and merge).
-**Ты используешь:** core и ingest Саши, `answer()` Сони, демо-данные Кирилла.
-**Тобой пользуются:** бот и e2e Кирилла (по HTTP), позже фронтенд.
+**Ревью:** не нужно. Саша и Соня вливают свои ветки в `main` сами; по PR `contract` тебе приходит issue `to:veronika`.
+**Ты используешь:** core и ingest Саши, `answer()` Сони, демо-данные Саши (S10).
+**Тобой пользуются:** фронтенд ruina696 и e2e Саши (по HTTP). **Указания ruina696 по бэкенду в приоритете** (см. `CLAUDE.md`).
 
 ## Стартовый промпт для Claude Code
 
@@ -14,7 +14,7 @@
 contracts/api.md, backend/app/models.py.
 Проверь входящие issues: gh issue list --label to:veronika --state open.
 Задачу V0 я делаю руками по docs/00_connect.md. Начни с V1.
-После каждой задачи: тесты, ruff, обновить docs/status/veronika.md, PR на ревью Кириллу.
+После каждой задачи: тесты, ruff, обновить docs/status/veronika.md, влить в main.
 Меняй только файлы моей зоны.
 ```
 
@@ -24,7 +24,7 @@ contracts/api.md, backend/app/models.py.
 
 1. Создать **публичный** репозиторий `finritm` (жюри проверяет репозиторий; на публичном бесплатно работает защита веток).
 2. Залить стартовый набор (этот архив) первым коммитом.
-3. Пригласить Сашу, Соню, Кирилла с ролью **Write**.
+3. Пригласить Сашу и Соню с ролью **Write**.
 4. `scripts/setup_github.sh` — метки `to:*`, `contract`, `blocked`, `bug`.
 5. Защита `main`: только через PR, 1 одобрение, обязательный CI.
 6. Включить **Squash merging** и **Automatically delete head branches** (Settings → General).
@@ -37,7 +37,7 @@ contracts/api.md, backend/app/models.py.
 - `api/errors.py`: единый `ErrorResponse`. Для `RequestValidationError` — русские сообщения по типу ошибки pydantic: `missing` → «Обязательное поле», `greater_than` → «Значение должно быть больше {gt}», `decimal_parsing`/`float_parsing` → «Нужно число», `date_from_datetime_parsing`/`date_parsing` → «Дата в формате ГГГГ-ММ-ДД», `extra_forbidden` → «Неизвестное поле»; `field` = путь поля через точку.
 - `api/routes/*.py`: **все** эндпоинты из `contracts/api.md`. Пока core не готов — используй заглушки Саши (S1 выходит к Ч1:15); если их ещё нет — верни валидный объект модели с данными P1.
 - Тест `tests/api/test_smoke.py`: каждый эндпоинт отвечает нужной моделью.
-- Сообщи Кириллу (issue `to:kirill`): «API на заглушках в main, запуск: `uvicorn app.main:app --app-dir backend`».
+- Сообщи Саше (issue `to:sasha`, для e2e): «API на заглушках в main, запуск: `uvicorn app.main:app --app-dir backend`».
 
 ## V2. Хранилище, идентификация, профиль · Ч2–3
 
@@ -68,7 +68,7 @@ contracts/api.md, backend/app/models.py.
 - `GET /api/summary`: `calculate_runway`, `spending_breakdown`, `detect_risks`, `plan_all_goals`, `origin` → `SummaryResponse`.
 - `POST /api/simulate`, `POST /api/goal/plan`.
 - Тесты API на P1–P3: числа совпадают с `contracts/expected_results.json` (через HTTP-ответ).
-- **К Ч5 — интеграция 1:** вместе с Кириллом прогнать СЦ-1…СЦ-6 через бота на проде.
+- **К Ч5 — интеграция 1:** вместе с Сашей прогнать СЦ-1…СЦ-6 через API на проде (e2e, S12).
 
 ## V5. Импорт и чат · Ч5–7
 
@@ -89,7 +89,7 @@ contracts/api.md, backend/app/models.py.
 - Фриз в Ч9: мержить только исправления.
 - Финальный деплой, тег `git tag v1.0 && git push --tags`.
 - Проверка секретов: `git log -p | grep -iE "api_key|token|secret" ` — только имена переменных; gitleaks в CI зелёный.
-- В Ч11 — прогон демо вместе с Кириллом.
+- В Ч11 — прогон демо вместе с Сашей и Соней.
 
 ## Мерж и контракты — постоянно
 - Ответ на PR — в течение 20 минут. Порядок мержа: сначала заглушки и контракты, потом остальное.
