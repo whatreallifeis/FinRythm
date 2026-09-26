@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useDatasetStore } from './dataset';
 import { api } from './client';
 import type { GoalDraft, Transaction } from './types';
 
@@ -113,7 +112,6 @@ export function useSeedDemo() {
         queryClient.prefetchQuery({ queryKey: queryKeys.runway, queryFn: api.runway }),
         queryClient.prefetchQuery({ queryKey: queryKeys.history, queryFn: api.history }),
       ]);
-      useDatasetStore.getState().setReady(true);
     },
   });
 }

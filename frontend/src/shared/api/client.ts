@@ -1,5 +1,4 @@
 import type { z } from 'zod';
-import { clearDataset as clearMockDataset, mockHandlers } from './mock/handlers';
 import {
   askAnswerSchema,
   explainedSchema,
@@ -33,7 +32,7 @@ import type {
   Transaction,
 } from './types';
 
-const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false';
+/** Пусто — API на том же адресе, что и сайт (так работает стенд за caddy). */
 const API_URL = import.meta.env.VITE_API_URL ?? '';
 
 /** Единый тип ошибки: UI различает «нет сети», «сервер ответил ошибкой» и «формат не тот». */
@@ -95,79 +94,59 @@ async function request<T>(
 const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) });
 
 /**
- * Единственная точка входа к данным.
- *
- * Пока VITE_USE_MOCK !== 'false' все вызовы уходят в mock/handlers.
- * Переключение на реальный бэкенд — это изменение одной переменной окружения,
- * компоненты и хуки не меняются.
+ * Единственная точка входа к данным. Все вызовы идут в бэкенд (contracts/api.md в main).
  */
 export const api = {
-  /** Подставляет демо-набор. На реальном бэкенде этим станет импорт файла. */
+  /** Подставляет демо-набор студента на сервере. */
   seedDemo(): Promise<void> {
-    if (USE_MOCK) return mockHandlers.seedDemo();
     return request('/api/demo/seed', null, post({}));
   },
 
   clearDataset(): Promise<void> {
-    if (USE_MOCK) {
-      clearMockDataset();
-      return Promise.resolve();
-    }
     return request<void>('/api/dataset', null, { method: 'DELETE' });
   },
 
   authDemo(): Promise<Session> {
-    if (USE_MOCK) return mockHandlers.authDemo();
     return request('/api/auth/demo', sessionSchema, post({}));
   },
 
-  authTelegram(initData: string, displayName: string): Promise<Session> {
-    if (USE_MOCK) return mockHandlers.authTelegram(displayName);
+  authTelegram(initData: string): Promise<Session> {
     return request('/api/auth/telegram', sessionSchema, post({ initData }));
   },
 
   profile(): Promise<Profile> {
-    if (USE_MOCK) return mockHandlers.profile();
     return request('/api/profile', profileSchema);
   },
 
   transactions(): Promise<Transaction[]> {
-    if (USE_MOCK) return mockHandlers.transactions();
     return request('/api/transactions', transactionSchema.array());
   },
 
   overview(): Promise<Explained<Overview>> {
-    if (USE_MOCK) return mockHandlers.overview();
     return request('/api/analysis/overview', explainedSchema(overviewSchema));
   },
 
   forecast(): Promise<Explained<Forecast>> {
-    if (USE_MOCK) return mockHandlers.forecast();
     return request('/api/analysis/forecast', explainedSchema(forecastSchema));
   },
 
   runway(): Promise<Explained<Runway>> {
-    if (USE_MOCK) return mockHandlers.runway();
     return request('/api/analysis/runway', explainedSchema(runwaySchema));
   },
 
   impulse(amount: number): Promise<Explained<ImpulseCheck>> {
-    if (USE_MOCK) return mockHandlers.impulse(amount);
     return request('/api/analysis/impulse', explainedSchema(impulseCheckSchema), post({ amount }));
   },
 
   goalPlan(goalId: string): Promise<Explained<GoalPlan>> {
-    if (USE_MOCK) return mockHandlers.goalPlan(goalId);
     return request(`/api/goals/${goalId}/plan`, explainedSchema(goalPlanSchema));
   },
 
   createGoal(draft: GoalDraft): Promise<Goal> {
-    if (USE_MOCK) return mockHandlers.createGoal(draft);
     return request('/api/goals', goalSchema, post(draft));
   },
 
   updateGoal(id: string, draft: GoalDraft): Promise<Goal> {
-    if (USE_MOCK) return mockHandlers.updateGoal(id, draft);
     return request(`/api/goals/${id}`, goalSchema, {
       method: 'PATCH',
       body: JSON.stringify(draft),
@@ -175,7 +154,6 @@ export const api = {
   },
 
   deleteGoal(id: string): Promise<void> {
-    if (USE_MOCK) return mockHandlers.deleteGoal(id);
     return request<void>(`/api/goals/${id}`, null, { method: 'DELETE' });
   },
 
@@ -184,19 +162,16 @@ export const api = {
    * системный промпт — текст промпта во фронтенде не хранится.
    */
   ask(payload: AskRequest): Promise<Explained<AskAnswer>> {
-    if (USE_MOCK) return mockHandlers.ask(payload);
     return request('/api/ask', explainedSchema(askAnswerSchema), post(payload));
   },
 
   importTransactions(
     rows: Array<Omit<Transaction, 'id' | 'isRecurring'>>,
   ): Promise<ImportResult> {
-    if (USE_MOCK) return mockHandlers.importTransactions(rows);
     return request('/api/transactions/import', importResultSchema, post({ rows }));
   },
 
   history(): Promise<HistoryEntry[]> {
-    if (USE_MOCK) return mockHandlers.history();
     return request('/api/history', historyEntrySchema.array());
   },
 
@@ -205,7 +180,6 @@ export const api = {
    * Идемпотентно, поэтому повторный вызов с теми же данными безопасен.
    */
   saveHistory(entry: HistoryEntry): Promise<HistoryEntry> {
-    if (USE_MOCK) return mockHandlers.saveHistory(entry);
     return request(`/api/history/${entry.id}`, historyEntrySchema, {
       method: 'PUT',
       body: JSON.stringify(entry),
@@ -213,7 +187,6 @@ export const api = {
   },
 
   clearHistory(): Promise<void> {
-    if (USE_MOCK) return mockHandlers.clearHistory();
     return request<void>('/api/history', null, { method: 'DELETE' });
   },
 };

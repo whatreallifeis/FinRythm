@@ -4,7 +4,6 @@ import { Screen } from '@/layouts/Screen';
 import { useMainButton, usePlatform } from '@/platform';
 import { useDatasetReady } from '@/shared/api/dataset';
 import { useImportTransactions, useSeedDemo, useTransactions } from '@/shared/api/hooks';
-import { demoCsv, demoCsvWithErrors } from '@/shared/api/mock/data';
 import { parseCsv } from '@/shared/lib/csv';
 import { categoryLabel } from '@/shared/lib/categories';
 import { formatDate, formatSigned } from '@/shared/lib/format';
@@ -12,6 +11,7 @@ import type { ImportResult } from '@/shared/api/types';
 import { Badge, Button, Card, CardTitle, EmptyState, ScreenState, Skeleton } from '@/shared/ui';
 import { CsvGuideModal } from './CsvGuideModal';
 import { DatasetLoading } from './DatasetLoading';
+import { sampleCsv, sampleCsvWithErrors } from './sampleCsv';
 
 /**
  * Загрузка и пополнение данных.
@@ -177,7 +177,7 @@ export function ImportScreen() {
                 void loadExample();
                 return;
               }
-              setContent(demoCsv, 'пример.csv');
+              setContent(sampleCsv, 'пример.csv');
             }}
           >
             Вставить пример
@@ -185,7 +185,7 @@ export function ImportScreen() {
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => setContent(demoCsvWithErrors, 'пример-с-ошибками.csv')}
+            onClick={() => setContent(sampleCsvWithErrors, 'пример-с-ошибками.csv')}
           >
             Пример с ошибками
           </Button>
