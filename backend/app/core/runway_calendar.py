@@ -179,6 +179,16 @@ def _income_today_note(state: UserState, as_of: dt.date) -> list[str]:
     return [f"Поступление {names} сегодня считаем уже зачисленным в баланс; следующее — через месяц."]
 
 
+def _no_income_note(plan: Plan) -> list[str]:
+    """Без поступлений горизонт условный — говорим об этом прямо, а не выдаём лимит за факт."""
+    if plan.next_income is not None:
+        return []
+    return [
+        f"Поступлений в профиле нет — лимит посчитан так, будто до {human_date(plan.horizon_end)} "
+        "денег больше не придёт. Добавьте стипендию или зарплату с днём месяца, чтобы расчёт был точнее."
+    ]
+
+
 # ---------------------------------------------------------------- runway
 
 
@@ -353,6 +363,7 @@ def check_impulse(state: UserState, amount: Decimal, as_of: dt.date) -> Explaine
             "Покупка списывается сегодня, обязательные платежи остаются на своих датах.",
             "Поступления берутся из профиля.",
             *_income_today_note(state, as_of),
+            *_no_income_note(plan),
         ],
         calculation=[
             step("Покупка", "сумма, которую хотите потратить сегодня", to_money(amount)),
