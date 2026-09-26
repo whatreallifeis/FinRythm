@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -102,6 +103,14 @@ def insufficient(
     )
 
 
+@dataclass
+class Reply:
+    """Ответ сценария и факты, из которых можно брать числа: результаты core и тексты источников."""
+
+    explained: Explained
+    facts: list[Any] = field(default_factory=list)
+
+
 def compose(
     text: str,
     parts: list[Explained],
@@ -110,7 +119,8 @@ def compose(
     limitations: list[str] | None = None,
     sources: list[SourceRef] | None = None,
     coverage_days: int | None = None,
-) -> Explained:
+    facts: list[Any] | None = None,
+) -> Reply:
     """Текст + обёртка объяснимости из результатов core (без пересчёта)."""
     # Шаг с тем же названием и числом из другого расчёта («Текущий баланс») показываем один раз.
     calculation: list[CalcStep] = []
@@ -120,7 +130,7 @@ def compose(
     all_sources = _dedupe([s for part in parts for s in part.sources] + (sources or []))
     if coverage_days is None:
         coverage_days = max((p.data_quality.coverage_days for p in parts), default=0)
-    return Explained(
+    explained = Explained(
         result={"text": text},
         assumptions=_dedupe([a for part in parts for a in part.assumptions] + (assumptions or [])),
         calculation=calculation,
@@ -129,6 +139,7 @@ def compose(
         or COMMON_LIMITS,
         data_quality=DataQuality(sufficient=True, missing=[], coverage_days=coverage_days),
     )
+    return Reply(explained, [part.result for part in parts] + (facts or []))
 
 
 def _not_sufficient(parts: list[Explained]) -> Explained | None:
@@ -144,7 +155,7 @@ def _not_sufficient(parts: list[Explained]) -> Explained | None:
 # ---------------------------------------------------------------- impulse
 
 
-def impulse(question: str, state: UserState, as_of: dt.date) -> Explained:
+def impulse(question: str, state: UserState, as_of: dt.date) -> Explained | Reply:
     amount = extract_amount(question)
     if amount is None:
         return insufficient([MISSING_AMOUNT], core_calls.coverage(state, as_of))
@@ -196,7 +207,7 @@ def _recurring_payments(state: UserState) -> bool:
     return any(op.is_recurring and op.amount < 0 for op in state.transactions)
 
 
-def budget(question: str, state: UserState, as_of: dt.date) -> Explained:
+def budget(question: str, state: UserState, as_of: dt.date) -> Explained | Reply:
     missing = []
     if state.balance is None:
         missing.append(MISSING_BALANCE)
@@ -251,7 +262,7 @@ def budget_text(f: dict, rw: dict, goals: list) -> str:
 # ---------------------------------------------------------------- expenses
 
 
-def expenses(question: str, state: UserState, as_of: dt.date) -> Explained:
+def expenses(question: str, state: UserState, as_of: dt.date) -> Explained | Reply:
     if not state.transactions:
         return insufficient([MISSING_OPERATIONS], 0)
     overview = core_calls.overview(state, as_of)
@@ -293,7 +304,9 @@ def _fragment(item: Any) -> dict:
     return vars(item)
 
 
-def glossary(question: str, state: UserState, as_of: dt.date, kb: KnowledgeSearch | None) -> Explained:
+def glossary(
+    question: str, state: UserState, as_of: dt.date, kb: KnowledgeSearch | None
+) -> Explained | Reply:
     found = [_fragment(r) for r in kb.search(question, k=1)] if kb is not None else []
     if not found:
         return insufficient(
@@ -312,6 +325,7 @@ def glossary(question: str, state: UserState, as_of: dt.date, kb: KnowledgeSearc
         sources=[SourceRef(title=item.get("source_title") or item["title"], url=item["url"])],
         limitations=["Это объяснение термина, а не совет открывать вклад, брать кредит или инвестировать."],
         coverage_days=core_calls.coverage(state, as_of),
+        facts=[item["text"], item.get("mistake") or ""],
     )
 
 
@@ -368,6 +382,19 @@ def classify_free(question: str) -> str | None:
 def run(
     scenario_id: str, question: str, state: UserState, as_of: dt.date, kb: KnowledgeSearch | None
 ) -> Explained:
+    return run_reply(scenario_id, question, state, as_of, kb).explained
+
+
+def run_reply(
+    scenario_id: str, question: str, state: UserState, as_of: dt.date, kb: KnowledgeSearch | None
+) -> Reply:
+    reply = _dispatch(scenario_id, question, state, as_of, kb)
+    return reply if isinstance(reply, Reply) else Reply(reply)
+
+
+def _dispatch(
+    scenario_id: str, question: str, state: UserState, as_of: dt.date, kb: KnowledgeSearch | None
+) -> Explained | Reply:
     if scenario_id == "free":
         scenario_id = classify_free(question) or "clarify"
     try:

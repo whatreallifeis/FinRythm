@@ -107,6 +107,8 @@ class KnowledgeBase:
         self.fragments = fragments
         docs = [self._doc_tokens(f) for f in fragments]
         self._titles = [set(tokenize(f["title"])) for f in fragments]
+        # Заголовок и ключевые слова: о чём фрагмент (для вопросов-определений).
+        self._heads = [set(tokenize(" ".join([f["title"], *f.get("keywords", [])]))) for f in fragments]
         self._bm25 = BM25Okapi(docs) if docs else None
 
     @staticmethod
@@ -119,17 +121,25 @@ class KnowledgeBase:
         return len(self.fragments)
 
     def search(self, query: str, k: int = 3, min_score: float = MIN_SCORE) -> list[dict[str, Any]]:
-        """До k фрагментов, лучший первым; пусто, если ничего не набрало min_score."""
-        tokens = tokenize(focus(query))
+        """До k фрагментов, лучший первым; пусто, если ничего не набрало min_score.
+
+        В вопросе-определении («что такое дюрация облигации») первые слова термина должны быть
+        в заголовке или ключевых словах фрагмента: иначе мы ответили бы про облигации, а не про дюрацию.
+        """
+        term = focus(query)
+        tokens = tokenize(term)
         if self._bm25 is None or not tokens:
             return []
+        head_terms = set(tokens[:2]) if term != query else set()
         query = set(tokens)
         scores = [
             score + (TITLE_BONUS * len(title & query) / len(title) if title else 0.0)
             for score, title in zip(self._bm25.get_scores(tokens), self._titles, strict=True)
         ]
         ranked = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
-        return [self.fragments[i] for i in ranked[:k] if scores[i] >= min_score]
+        return [self.fragments[i] for i in ranked if scores[i] >= min_score and head_terms <= self._heads[i]][
+            :k
+        ]
 
 
 def load_kb(path: str | Path) -> KnowledgeBase:
