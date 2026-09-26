@@ -10,8 +10,10 @@
 
 - **VF3 (часть). Docker.** `Dockerfile`, `docker-compose.yml` (сервис `api`, SQLite в именованном томе), в CI — job `docker`: сборка образа и сценарий «демо → календарь → покупка» против контейнера.
 
+- **Тестовый стенд.** `deploy/` (caddy + api + ollama по флагу), `docs/03_deploy.md` — пошаговая инструкция для Рег.облака, ручной чек-лист, Ollama. В CI job `deploy` поднимает стенд целиком. В Swagger — кнопка Authorize.
+
 ## В работе
-- VF3 — деплой на HTTPS: жду решения, где хостим.
+- Стенд на сервере Рег.облака по `docs/03_deploy.md` — разворачивает команда.
 
 ## Заблокировано / жду от других
 - Саша: `build_overview`, `build_forecast`, `build_runway`, `check_impulse`, `build_goal_plan` в `app.core`, `apply_import` в `app.ingest`. Соня: `ask` (и `LLMUnavailable`, `load_kb`) в `app.ai`. До этого эндпоинты отвечают заглушками с `sufficient=false`.

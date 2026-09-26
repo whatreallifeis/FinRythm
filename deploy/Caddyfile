@@ -1,0 +1,43 @@
+# Тестовый сервер: фронтенд и API на одном адресе, HTTPS от Let's Encrypt автоматически.
+# Переменные берутся из .env (см. .env.example, раздел «Сервер»).
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# Весь сайт и Swagger закрыты паролем: тестовый стенд не должен быть публичным.
+	# /api/* пароль не требует — туда фронтенд ходит со своим токеном (Authorization: Bearer),
+	# а два заголовка Authorization в одном запросе невозможны. API и так пускает только с токеном сессии.
+	@site not path /api/*
+	basic_auth @site {
+		{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+	}
+
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	# Swagger для ручной проверки API
+	handle /docs* {
+		reverse_proxy api:8000
+	}
+	handle /openapi.json {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv/frontend
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

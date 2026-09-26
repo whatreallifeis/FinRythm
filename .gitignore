@@ -24,3 +24,5 @@ node_modules/
 frontend/dist/
 # локальные заметки Claude
 .claude/settings.local.json
+# сборки для сервера (deploy/build-frontend.sh)
+.deploy/
