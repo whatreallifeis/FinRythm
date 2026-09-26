@@ -105,7 +105,7 @@ export const api = {
   /** Подставляет демо-набор. На реальном бэкенде этим станет импорт файла. */
   seedDemo(): Promise<void> {
     if (USE_MOCK) return mockHandlers.seedDemo();
-    return Promise.reject(new ApiError('http', 'Загрузка примера доступна только в демо-режиме'));
+    return request('/api/demo/seed', null, post({}));
   },
 
   clearDataset(): Promise<void> {
@@ -113,7 +113,7 @@ export const api = {
       clearMockDataset();
       return Promise.resolve();
     }
-    return Promise.resolve();
+    return request<void>('/api/dataset', null, { method: 'DELETE' });
   },
 
   authDemo(): Promise<Session> {
