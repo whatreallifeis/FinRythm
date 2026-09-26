@@ -16,8 +16,10 @@ from app.ai.llm.base import LLMReply, LLMUnavailable, ToolCall
 
 log = logging.getLogger(__name__)
 
-# На CPU ответ 7B-модели идёт 10–40 с (docs/03_deploy.md), поэтому запасом.
-DEFAULT_TIMEOUT = 45.0
+# Бюджет на весь ответ помощника (ask) — на CPU 3B-модель отвечает 20–40 с (issue #39).
+DEFAULT_TIMEOUT = 40.0
+# Ответ — 2–4 предложения; ограничение длины экономит время генерации на CPU.
+DEFAULT_MAX_TOKENS = 300
 
 
 class OpenAICompatLLM:
@@ -31,10 +33,13 @@ class OpenAICompatLLM:
         api_key: str = "",
         timeout: float = DEFAULT_TIMEOUT,
         temperature: float = 0.3,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
         http_client: httpx.AsyncClient | None = None,
     ):
         self.model = model
         self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.answer_timeout = timeout  # ask() укладывает в него весь ответ вместе с повтором
         self._client = openai.AsyncOpenAI(
             base_url=base_url,
             # Ollama ключ не проверяет, но клиент openai требует непустую строку.
@@ -45,7 +50,12 @@ class OpenAICompatLLM:
         )
 
     async def complete(self, messages: list[dict], tools: list[dict] | None = None) -> LLMReply:
-        kwargs: dict[str, Any] = {"model": self.model, "messages": messages, "temperature": self.temperature}
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+        }
         if tools:
             kwargs["tools"] = tools
         try:

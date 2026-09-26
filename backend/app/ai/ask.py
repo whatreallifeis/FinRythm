@@ -5,8 +5,10 @@ API передаёт вопрос, scenarioId и данные пользоват
 1. Фильтр рискованных запросов — до расчётов и до модели.
 2. Сценарий: расчёты app.core и шаблонный текст вокруг их чисел.
 3. Если подключена модель (LLM_PROVIDER=openai_compat) и данных хватает — модель переписывает шаблон.
-4. Проверка чисел: каждое число текста должно быть в расчёте, вопросе или источнике. Провал — одна
-   повторная попытка с подсказкой, затем шаблонный текст. Модель не ответила вовремя — LLMUnavailable (503).
+4. Проверка чисел: каждое число текста должно быть в расчёте, вопросе или источнике. Провал — повторная
+   попытка с подсказкой, если на неё хватает времени, иначе шаблонный текст.
+На весь ответ модели — общий бюджет времени (LLM_TIMEOUT, по умолчанию 40 с). Не успела, ошибка сети или
+сервера — пользователь получает шаблонный ответ из тех же чисел, а не 503 (issue #39).
 """
 
 from __future__ import annotations
@@ -16,20 +18,23 @@ import datetime as dt
 import logging
 import re
 import time
+from decimal import Decimal
 
 from app.ai import guardrails, prompts, scenarios
 from app.ai.amounts import extract_amount
 from app.ai.llm.base import LLMClient, LLMUnavailable
 from app.ai.number_check import allowed_numbers, check_numbers
 from app.ai.tools import KnowledgeSearch
-from app.core.money import fmt_rub
+from app.core.money import fmt_num, fmt_rub
 from app.models import SCENARIO_IDS, Explained, ScenarioId, UserState
 
 log = logging.getLogger(__name__)
 
 DECIDE_PREFIX = "Решать вам — я покажу последствия."
-# Весь ответ модели, включая повторную попытку. На CPU 7B-модель отвечает 10–40 с (docs/03_deploy.md).
-ANSWER_TIMEOUT = 60.0
+# Бюджет на весь ответ модели, включая повторную попытку (у клиента можно задать answer_timeout).
+ANSWER_TIMEOUT = 40.0
+# Повторная попытка — только если до конца бюджета осталось хотя бы столько.
+MIN_RETRY_SECONDS = 12.0
 MAX_ATTEMPTS = 2
 MAX_TEXT = 1500
 
@@ -49,29 +54,44 @@ def _clean(text: str | None) -> str:
     if len(text) > 1 and text[0] + text[-1] in ('""', "''", "«»"):  # модель обернула весь ответ в кавычки
         text = text[1:-1].strip()
     # Схлопываем переносы и обычные пробелы; неразрывный пробел в «14 900 ₽» оставляем.
-    return re.sub(r"[ \t\r\n]+", " ", text)[:MAX_TEXT]
+    return tidy_numbers(re.sub(r"[ \t\r\n]+", " ", text)[:MAX_TEXT])
 
 
-async def rewrite(
-    llm: LLMClient, scenario_id: str, question: str, reply: scenarios.Reply, today: dt.date
-) -> str:
-    """Текст модели, прошедший проверку чисел, или шаблонный текст. Таймаут и сбой — LLMUnavailable."""
+_MINUS = re.compile(r"(?<![\w\d])-(?=\d)")
+# Суммы без разделителя разрядов: «10618 ₽» или длинные числа от 5 знаков. Годы («2027 года») не трогаем.
+_UNGROUPED = re.compile(r"(?<![\w.,])(\d{4})(?=\s?₽)|(?<![\w.,])(\d{5,})(?![\w.,])")
+
+
+def tidy_numbers(text: str) -> str:
+    """Числа модели — в том же виде, что в шаблонах: «-10618 ₽» → «−10 618 ₽»."""
+
+    def group(match: re.Match[str]) -> str:
+        return fmt_num(Decimal(match.group(1) or match.group(2)))
+
+    return _UNGROUPED.sub(group, _MINUS.sub("−", text))
+
+
+async def rewrite(llm: LLMClient, scenario_id: str, question: str, reply: scenarios.Reply) -> str:
+    """Текст модели, прошедший проверку чисел, или шаблонный текст — всегда в пределах бюджета времени."""
     draft = reply.explained.result["text"]
     messages = [
-        {"role": "system", "content": prompts.system_prompt(scenario_id, today)},
-        {"role": "user", "content": prompts.user_message(question, reply.facts, draft)},
+        {"role": "system", "content": prompts.system_prompt()},
+        {"role": "user", "content": prompts.user_message(scenario_id, question, draft)},
     ]
-    deadline = time.monotonic() + ANSWER_TIMEOUT
+    budget = float(getattr(llm, "answer_timeout", None) or ANSWER_TIMEOUT)
+    deadline = time.monotonic() + budget
     for attempt in range(1, MAX_ATTEMPTS + 1):
         remaining = deadline - time.monotonic()
-        if remaining <= 0:
+        if attempt > 1 and remaining < MIN_RETRY_SECONDS:
             break
         try:
+            # wait_for отменяет запрос: соединение закрывается, Ollama не копит очередь брошенных ответов.
             answer = await asyncio.wait_for(llm.complete(messages), timeout=remaining)
-        except TimeoutError as error:
-            if attempt == 1:
-                raise LLMUnavailable("Модель не ответила вовремя") from error
-            break  # на повторной попытке — просто шаблон
+        except (TimeoutError, LLMUnavailable) as error:
+            log.warning(
+                "llm unavailable: scenario=%s attempt=%d %s", scenario_id, attempt, type(error).__name__
+            )
+            break
         text = _clean(answer.content)
         if not re.search(r"[а-яё]", text, re.IGNORECASE):
             hint = prompts.NOT_RUSSIAN
@@ -129,9 +149,10 @@ async def ask(
         # Шаблоны берут числа только из core — расхождение значит ошибку в шаблоне, её видно в логах.
         log.warning("number check failed: scenario=%s numbers=%s", scenario_id, [str(n) for n in bad])
 
-    if uses_model(llm):
+    # «Реши за меня» модели не отдаём: она убирала «решать вам» и писала «подождите» как указание (#39).
+    if uses_model(llm) and not decide:
         effective = run_scenario
-        if effective == "free":  # промпт — того сценария, который выбрал classify_free
+        if effective == "free":  # сценарий выбран по словам вопроса, без модели
             effective = scenarios.classify_free(question) or "free"
-        reply.explained.result["text"] = await rewrite(llm, effective, question, reply, as_of)
+        reply.explained.result["text"] = await rewrite(llm, effective, question, reply)
     return reply.explained
