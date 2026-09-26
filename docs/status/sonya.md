@@ -1,16 +1,17 @@
 # Статус: sonya
 
-Обновляется в конце каждой задачи. Последнее обновление: 26.09.2026, A1
+Обновляется в конце каждой задачи. Последнее обновление: 27.09.2026, A2
 
 ## Сделано
 - **A1. LLMClient и FakeLLM** (`backend/app/ai/llm/`): интерфейс `LLMClient`, `ToolCall`, `LLMReply`; `FakeLLM` без сети; `get_llm(settings)` (пока только `fake`). 48 тестов в `backend/tests/ai/`.
+- **A2. Инструменты** (`backend/app/ai/tools.py`): схемы из `contracts/tools.schema.json` (`tool_schemas()`, `openai_tools()` — формат function calling), `dispatch(name, args, profile, *, kb=None) -> dict` поверх `app.core`. Ошибки аргументов → `{"error": "..."}` по-русски, без исключений. Проверено вместе с FakeLLM: вопрос → инструмент → ответ с числами из core (404 → 211 ₽).
 
 ## В работе
 - A0 (доступ к LLM): ключа пока нет, работаем на `LLM_PROVIDER=fake`.
-- Далее A2 — инструменты (`tools.py`, `dispatch`).
+- Далее A3 — оркестратор и системный промпт.
 
 ## Заблокировано / жду от других
-- A2 ждёт функции core Саши (`calculate_runway`, `simulate`, `plan_goal`, `spending_breakdown`, `detect_risks`, `build_snapshot`).
+- Реальные числа `plan_goal`, `spending_breakdown`, `detect_risks`, `build_snapshot` появятся с задачами Саши S3–S8 (сейчас заглушки); `calculate_runway`/`simulate` уже настоящие (S2).
 
 ## Что важно знать остальным
 - **Вероника:** `from app.ai import get_llm` → `get_llm(settings)` читает `settings.llm_provider` (переменная `LLM_PROVIDER`), по умолчанию `fake`. Неизвестный провайдер → `ValueError` с понятным текстом. `answer()` появится в A3.
@@ -20,3 +21,4 @@
   - вопросы-объяснения («что такое», «объясни»…) проверяются первыми: «что такое подписка» → `search_knowledge`, а не `detect_risks`;
   - `plan_goal` без суммы и срока вызывается с пустыми аргументами (FakeLLM не видит профиль) — первую цель пользователя подставит `dispatch` в A2;
   - год в «к 31 марта» FakeLLM берёт из даты ГГГГ-ММ-ДД в системном промпте (промпт в A3 будет её содержать).
+- `dispatch`: `plan_goal` без аргументов → первая цель пользователя; `calculate_runway(count_expected_income=true)` → `k=0.5`; `spending_breakdown` без операций → `{"error": ...}` с подсказкой загрузить CSV; `search_knowledge` без базы → `{"query", "results": []}`.
