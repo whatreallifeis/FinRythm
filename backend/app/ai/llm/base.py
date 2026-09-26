@@ -25,6 +25,10 @@ class LLMReply:
     tool_calls: list[ToolCall] = field(default_factory=list)
 
 
+class LLMUnavailable(RuntimeError):
+    """Провайдер LLM не ответил: таймаут, сеть, ошибка сервера. API превращает в 503."""
+
+
 class LLMClient(Protocol):
     name: str
 

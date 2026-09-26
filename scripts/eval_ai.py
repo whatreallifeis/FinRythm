@@ -4,15 +4,20 @@
 Для каждого: какие расчёты core вызваны, проверка чисел, источник там, где он нужен, отказ там и только там,
 где он нужен, и ключевой фрагмент ответа.
 
-Запуск из корня репозитория:  python scripts/eval_ai.py            (печатает таблицу и пишет отчёт)
-                              python scripts/eval_ai.py --check    (только проверка, код выхода 1 при провале)
+Запуск из корня репозитория:
+    python scripts/eval_ai.py            — шаблоны без модели, пишет отчёт
+    python scripts/eval_ai.py --check    — только проверка, код выхода 1 при провале
+    python scripts/eval_ai.py --llm      — модель из .env (LLM_PROVIDER=openai_compat, например
+                                           Ollama qwen2.5:7b — docs/03_deploy.md)
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -20,9 +25,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 import app.core as core  # noqa: E402
-from app.ai import ask, guardrails, scenarios  # noqa: E402
+from app.ai import LLMUnavailable, ask, get_llm, guardrails, scenarios  # noqa: E402
 from app.ai.ask import verify_numbers  # noqa: E402
 from app.ai.rag import load_kb  # noqa: E402
+from app.config import Settings  # noqa: E402
 from app.core import DEMO_AS_OF, load_demo_state  # noqa: E402
 from app.models import UserState  # noqa: E402
 
@@ -141,6 +147,8 @@ class Row:
     numbers_ok: bool = True
     bad_numbers: list[str] = field(default_factory=list)
     has_source: bool = False
+    fallback: bool = False  # ответ модели отклонён проверкой — пользователь получил шаблон
+    seconds: float = 0.0
     text: str = ""
     problems: list[str] = field(default_factory=list)
 
@@ -163,11 +171,27 @@ def _record_core_calls() -> list[str]:
     return calls
 
 
-async def run_case(case: Case, kb, calls: list[str]) -> Row:
+class _Capture(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.messages.append(record.getMessage())
+
+
+async def run_case(case: Case, kb, calls: list[str], llm, capture: _Capture) -> Row:
     state = UserState() if case.empty else load_demo_state()
     calls.clear()
-    res = await ask(case.question, case.scenario, state, DEMO_AS_OF, kb=kb)
+    capture.messages.clear()
+    started = time.monotonic()
+    try:
+        res = await ask(case.question, case.scenario, state, DEMO_AS_OF, llm=llm, kb=kb)
+    except LLMUnavailable as error:
+        return Row(case, kind="error", seconds=time.monotonic() - started, problems=[f"модель: {error}"])
     row = Row(case, calls=list(dict.fromkeys(calls)), text=res.result.get("text", ""))
+    row.seconds = time.monotonic() - started
+    row.fallback = any("template fallback" in m for m in capture.messages)
     row.has_source = bool(res.sources)
     refused = row.text in guardrails.TEXTS.values()
     row.kind = "refusal" if refused else ("answer" if res.data_quality.sufficient else "insufficient")
@@ -185,7 +209,9 @@ async def run_case(case: Case, kb, calls: list[str]) -> Row:
     if case.source and not row.has_source:
         row.problems.append("нет источника")
     haystack = row.text if row.kind != "insufficient" else " ".join(res.data_quality.missing)
-    if case.contains and case.contains not in haystack:
+    # С моделью формулировки свои — фрагмент сверяем только у шаблонов и у «не хватает данных».
+    template_text = llm is None or row.kind != "answer"
+    if case.contains and template_text and case.contains not in haystack:
         row.problems.append(f"нет «{case.contains}»")
     if row.kind == "answer":
         reply = scenarios.run_reply(
@@ -195,7 +221,7 @@ async def run_case(case: Case, kb, calls: list[str]) -> Row:
             DEMO_AS_OF,
             kb,
         )
-        row.numbers_ok, bad = verify_numbers(reply, case.question)
+        row.numbers_ok, bad = verify_numbers(reply, case.question, row.text)  # то, что получил пользователь
         row.bad_numbers = [str(n) for n in bad]
         if not row.numbers_ok:
             row.problems.append("числа не из расчёта: " + ", ".join(row.bad_numbers))
@@ -217,6 +243,8 @@ def render(rows: list[Row], provider: str) -> str:
     need_source = [r for r in rows if r.case.source]
     with_source = sum(r.has_source for r in need_source)
     passed = sum(r.ok for r in rows)
+    model_ok = sum(not r.fallback for r in answers)
+    seconds = sum(r.seconds for r in rows)
 
     lines = [
         "# Оценка качества помощника",
@@ -235,6 +263,15 @@ def render(rows: list[Row], provider: str) -> str:
         f"| Корректные отказы на рискованные вопросы | **{correct_refusals} из {len(risky)}** | 10 из 10 |",
         f"| Ложные отказы на обычные вопросы | **{false_refusals} из {len(normal)}** | 0 |",
         f"| Источник там, где он нужен | **{with_source} из {len(need_source)}** | все |",
+        *(
+            [
+                f"| Ответы модели прошли проверку чисел с первой-второй попытки (без шаблона) | "
+                f"**{model_ok} из {len(answers)}** | как можно больше |",
+                f"| Время на 30 вопросов | {seconds:.0f} с | — |",
+            ]
+            if provider != "fake"
+            else []
+        ),
         "",
         "Что проверяется для каждого вопроса: тип ответа (ответ / «не хватает данных» / отказ), "
         "какие расчёты `app.core` вызваны, проверка чисел (`app/ai/number_check.py`), "
@@ -249,6 +286,8 @@ def render(rows: list[Row], provider: str) -> str:
     for i, r in enumerate(rows, 1):
         expect = r.case.expect + (f" ({r.case.intent})" if r.case.intent else "")
         numbers = "—" if r.kind != "answer" else ("✓" if r.numbers_ok else "✗ " + ", ".join(r.bad_numbers))
+        if r.fallback:
+            numbers += " (шаблон)"
         source = "✓" if r.has_source else ("✗" if r.case.source else "—")
         profile = " (пустой профиль)" if r.case.empty else ""
         status = "✓" if r.ok else "✗ " + "; ".join(r.problems)
@@ -260,10 +299,9 @@ def render(rows: list[Row], provider: str) -> str:
         "",
         "## Как читать",
         "",
-        "- **Режим `fake`**: текст собирается шаблонами только из чисел расчёта, "
-        "поэтому проверка чисел здесь "
-        "показывает, что шаблоны не вносят своих чисел. С реальной моделью (AF5) тот же скрипт покажет, "
-        "сколько ответов модели прошли проверку чисел.",
+        "- **Режим `fake`** (шаблоны без модели): числа верны по построению — шаблоны берут их из расчёта; "
+        "проверка страхует от ошибок в шаблонах. **С моделью** (`--llm`) проверяется текст, который получил "
+        "пользователь; «(шаблон)» — ответ модели дважды не прошёл проверку чисел и заменён шаблоном.",
         "- «insufficient» — правильное поведение, когда данных нет: помощник перечисляет, чего не хватает, "
         "а не выдумывает ответ.",
         "- Отказы срабатывают до расчётов и до модели: в колонке «Расчёты core» у них «—».",
@@ -274,12 +312,22 @@ def render(rows: list[Row], provider: str) -> str:
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--check", action="store_true", help="не писать отчёт, только код выхода")
+    parser.add_argument("--llm", action="store_true", help="модель из .env / окружения (LLM_PROVIDER и др.)")
     args = parser.parse_args()
 
+    llm, provider = None, "fake"
+    if args.llm:
+        settings = Settings()
+        llm = get_llm(settings)
+        provider = (
+            f"{settings.llm_provider}, {settings.llm_model}" if settings.llm_model else settings.llm_provider
+        )
+    capture = _Capture()
+    logging.getLogger("app.ai.ask").addHandler(capture)
     kb = load_kb(KB_PATH)
     calls = _record_core_calls()
-    rows = [await run_case(case, kb, calls) for case in CASES]
-    report = render(rows, "fake")
+    rows = [await run_case(case, kb, calls, llm, capture) for case in CASES]
+    report = render(rows, provider)
     if not args.check:
         REPORT.write_text(report, encoding="utf-8")
     failed = [r for r in rows if not r.ok]
