@@ -3,12 +3,14 @@
 import asyncio
 import importlib
 import json
+import time
 from types import SimpleNamespace
 
 import httpx
 import pytest
-from app.ai import LLMUnavailable, ask, get_llm
+from app.ai import LLMUnavailable, ask, get_llm, prompts
 from app.ai.llm.base import LLMReply
+from app.ai.llm.factory import llm_timeout
 from app.ai.llm.openai_compat import OpenAICompatLLM
 from app.core import DEMO_AS_OF, load_demo_state
 
@@ -31,10 +33,16 @@ class ScriptedLLM:
         self.delay = delay
         self.calls: list[list[dict]] = []
 
+    cancelled = False
+
     async def complete(self, messages, tools=None):
         self.calls.append([dict(m) for m in messages])
         if self.delay:
-            await asyncio.sleep(self.delay)
+            try:
+                await asyncio.sleep(self.delay)
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
         answer = self.answers.pop(0)
         if isinstance(answer, Exception):
             raise answer
@@ -50,13 +58,24 @@ async def test_model_text_used_when_numbers_ok():
     res = await run("Хочу купить телефон за 14 900 ₽", "impulse", llm)
     assert res.result["text"] == GOOD_14900
     system, user = llm.calls[0]
-    assert system["role"] == "system" and "Могу купить это сегодня" in system["content"]
-    assert "2026-09-26" in system["content"] and "на «вы»" in system["content"]
-    assert "Черновик ответа: Сейчас покупка на 14" in user["content"]
-    assert '"verdict": "shortfall"' in user["content"]
-    assert "daysAfter" not in user["content"]  # длинные списки по дням модели не отправляем
+    assert system == {"role": "system", "content": prompts.SYSTEM}
+    assert "на «вы»" in system["content"]
+    assert user["content"].startswith("Задача: Объясни, влезет ли покупка")
+    assert "Черновик: Сейчас покупка на 14" in user["content"]
+    # расчёт в промпт не идёт — модель видит только черновик (issue #39: короче промпт на CPU)
+    assert "verdict" not in user["content"] and "{" not in user["content"]
+    assert len(system["content"]) + len(user["content"]) < 1200
     # объяснимость — из core, модель её не меняет
     assert [s.label for s in res.calculation][0] == "Покупка"
+
+
+async def test_system_prompt_is_the_same_for_all_scenarios():
+    prompts_seen = []
+    for question, scenario in [("Составь бюджет", "budget"), ("Куда уходят деньги?", "expenses")]:
+        llm = ScriptedLLM("Ответ без чисел.")
+        await run(question, scenario, llm)
+        prompts_seen.append(llm.calls[0][0]["content"])
+    assert prompts_seen[0] == prompts_seen[1]
 
 
 async def test_retry_after_invented_number():
@@ -81,15 +100,27 @@ async def test_english_answer_is_retried():
     assert "по-русски" in llm.calls[1][-1]["content"]
 
 
-async def test_provider_error_is_llm_unavailable():
-    with pytest.raises(LLMUnavailable):
-        await run("Составь бюджет", "budget", ScriptedLLM(LLMUnavailable("down")))
+async def test_provider_error_gives_template():
+    res = await run("Составь бюджет", "budget", ScriptedLLM(LLMUnavailable("down")))
+    assert res.result["text"].startswith("До конца месяца можно тратить около 475")
 
 
-async def test_timeout_is_llm_unavailable(monkeypatch):
-    monkeypatch.setattr(ask_module, "ANSWER_TIMEOUT", 0.05)
-    with pytest.raises(LLMUnavailable):
-        await run("Составь бюджет", "budget", ScriptedLLM("текст", delay=1))
+async def test_timeout_gives_template_and_cancels_request():
+    llm = ScriptedLLM("текст", delay=5)
+    llm.answer_timeout = 0.2
+    started = time.monotonic()
+    res = await run("Составь бюджет", "budget", llm)
+    assert time.monotonic() - started < 2
+    assert res.result["text"].startswith("До конца месяца можно тратить около 475")
+    assert llm.cancelled  # запрос к модели отменён, Ollama не держит брошенный ответ
+
+
+async def test_no_retry_without_time_left():
+    llm = ScriptedLLM("Лимит 999 ₽.", GOOD_14900)
+    llm.answer_timeout = ask_module.MIN_RETRY_SECONDS / 2
+    res = await run("Хочу купить телефон за 14 900 ₽", "impulse", llm)
+    assert len(llm.calls) == 1
+    assert res.result["text"].startswith("Сейчас покупка на 14")
 
 
 @pytest.mark.parametrize(
@@ -113,10 +144,11 @@ async def test_fake_provider_keeps_template():
     assert res.result["text"].startswith("Сейчас покупка на 14")
 
 
-async def test_free_uses_prompt_of_detected_scenario():
-    llm = ScriptedLLM("До конца месяца можно тратить около 475 ₽ в день.")
-    await run("Хватит ли мне денег до конца месяца?", "free", llm)
-    assert "Планирование бюджета" in llm.calls[0][0]["content"]
+async def test_free_uses_task_of_detected_scenario_and_one_call():
+    llm = ScriptedLLM("Больше всего денег уходит на развлечения — там и проще сократить.")
+    await run("Как мне меньше тратить на еду?", "free", llm)
+    assert len(llm.calls) == 1  # сценарий выбран по словам, модель вызвана один раз
+    assert llm.calls[0][1]["content"].startswith("Задача: Объясни, куда уходят деньги")
 
 
 async def test_glossary_gets_source_text():
@@ -133,10 +165,14 @@ async def test_glossary_gets_source_text():
     assert res.sources[0].url.startswith("https://fincult.info/")
 
 
-async def test_decide_for_me_shows_both_options():
-    # issue #29: последствия и покупки, и отказа от неё
-    res = await run("Реши за меня, покупать наушники за 14 900 или нет", "impulse", None)
+@pytest.mark.parametrize("with_model", [False, True])
+async def test_decide_for_me_shows_both_options(with_model):
+    # issue #29: последствия и покупки, и отказа от неё; модель текст не трогает (#39: убирала «решать вам»)
+    llm = ScriptedLLM() if with_model else None
+    res = await run("Реши за меня, покупать наушники за 14 900 или нет", "impulse", llm)
     text = res.result["text"]
+    if llm is not None:
+        assert llm.calls == []
     assert text.startswith("Решать вам")
     assert "не влезает" in text
     assert "Если не покупать — можно тратить 475 ₽ в день, дней в минусе не будет." in text
@@ -220,3 +256,31 @@ def test_factory_openai_compat_needs_url_and_model():
 )
 def test_clean(raw, clean):
     assert ask_module._clean(raw) == clean
+
+
+@pytest.mark.parametrize(
+    ("raw", "tidy"),
+    [
+        ("баланс уйдёт в минус до -10618 ₽", "баланс уйдёт в минус до −10\u00a0618 ₽"),
+        ("лимит 4900 ₽ в день", "лимит 4\u00a0900 ₽ в день"),
+        ("к 1 февраля 2027 года", "к 1 февраля 2027 года"),
+        ("операция t-901", "операция t-901"),
+        ("14\u00a0900 ₽ и 3–6 месяцев", "14\u00a0900 ₽ и 3–6 месяцев"),
+    ],
+)
+def test_tidy_numbers(raw, tidy):
+    assert ask_module.tidy_numbers(raw) == tidy
+
+
+def test_llm_timeout_setting(monkeypatch):
+    monkeypatch.delenv("LLM_TIMEOUT", raising=False)
+    assert llm_timeout(SimpleNamespace()) == 40
+    assert llm_timeout(SimpleNamespace(llm_timeout=25)) == 25
+    monkeypatch.setenv("LLM_TIMEOUT", "90")
+    assert llm_timeout(SimpleNamespace()) == 90
+    monkeypatch.setenv("LLM_TIMEOUT", "много")
+    assert llm_timeout(SimpleNamespace()) == 40
+    settings = SimpleNamespace(
+        llm_provider="openai_compat", llm_base_url="http://x/v1", llm_model="m", llm_api_key=""
+    )
+    assert get_llm(settings).answer_timeout == 40
