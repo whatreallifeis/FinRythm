@@ -42,7 +42,8 @@ def overview(state: UserState, as_of: dt.date) -> Explained:
     return _fn("build_overview")(state, as_of)
 
 
-def goal_plan(state: UserState, goal_id: str, as_of: dt.date) -> Explained:
+def goal_plan(state: UserState, goal_id: str, as_of: dt.date) -> Explained | None:
+    """None — цели с таким id нет."""
     return _fn("build_goal_plan")(state, goal_id, as_of)
 
 

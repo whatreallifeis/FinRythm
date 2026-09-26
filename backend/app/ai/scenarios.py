@@ -112,7 +112,11 @@ def compose(
     coverage_days: int | None = None,
 ) -> Explained:
     """Текст + обёртка объяснимости из результатов core (без пересчёта)."""
-    calculation: list[CalcStep] = [step for part in parts for step in part.calculation]
+    # Шаг с тем же названием и числом из другого расчёта («Текущий баланс») показываем один раз.
+    calculation: list[CalcStep] = []
+    for step in (step for part in parts for step in part.calculation):
+        if all((step.label, step.value) != (seen.label, seen.value) for seen in calculation):
+            calculation.append(step)
     all_sources = _dedupe([s for part in parts for s in part.sources] + (sources or []))
     if coverage_days is None:
         coverage_days = max((p.data_quality.coverage_days for p in parts), default=0)
@@ -208,7 +212,7 @@ def budget(question: str, state: UserState, as_of: dt.date) -> Explained:
     goals = [(g, core_calls.goal_plan(state, g.id, as_of)) for g in state.goals if g.deadline]
     if bad := _not_sufficient([forecast, runway]):
         return bad
-    goals = [(g, plan) for g, plan in goals if plan.data_quality.sufficient]
+    goals = [(g, plan) for g, plan in goals if plan is not None and plan.data_quality.sufficient]
 
     assumptions = []
     if not state.goals:

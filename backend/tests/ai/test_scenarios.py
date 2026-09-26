@@ -458,3 +458,17 @@ async def test_texts_use_polite_you(core, demo):
 def test_human_date():
     assert scenarios.human_date("2026-10-05") == "5 октября"
     assert scenarios.human_date(dt.date(2027, 2, 1)) == "1 февраля"
+
+
+async def test_budget_skips_missing_goal_plan(core, demo):
+    core.overrides["build_goal_plan"] = None
+    res = await run("Составь бюджет", "budget", demo)
+    assert res.data_quality.sufficient
+    assert "На цель" not in res.result["text"]
+
+
+async def test_same_calc_step_shown_once(core, demo):
+    core.overrides["build_runway"] = core.build_forecast(demo, AS_OF)
+    res = await run("Составь бюджет", "budget", demo)
+    labels = [s.label for s in res.calculation]
+    assert labels.count("Можно тратить в день до конца месяца") == 1
