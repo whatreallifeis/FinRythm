@@ -1,57 +1,102 @@
 # Контракт HTTP API «ФинРитм»
 
-Владелец: **Вероника**. Реализация: `backend/app/api/`. Модели запросов и ответов — `backend/app/models.py`.
-Живая документация после запуска: `http://localhost:8000/docs` (Swagger) и `/openapi.json`.
-Этот API используют Telegram-бот (Кирилл), e2e-тесты (Кирилл), а позже — фронтенд (сайт и Mini App).
+Владелец: **Вероника**. Реализация: `backend/app/api/`. Живая документация: `http://localhost:8000/docs`.
+
+API сделан под фронтенд ruina696 (ветка `front`): формы ответов — `frontend/src/shared/api/types.ts`,
+вызовы — `frontend/src/shared/api/client.ts`. **Указания ruina696 по бэкенду в приоритете**: если этот файл
+с ними расходится, прав фронтенд, а этот файл надо поправить (issue `to:veronika`).
 
 ## Общие правила
 
-- Базовый путь: `/api`. Формат: JSON, UTF-8. Деньги в JSON — **строки** (`"9800.00"`), чтобы не терять точность.
-- Все ошибки возвращаются в одном формате `ErrorResponse`:
+- Базовый путь `/api`, JSON, UTF-8. Поля в JSON — **camelCase**.
+- Деньги в JSON — **числа** в рублях с копейками (`18430.5`): так ждёт фронтенд. Внутри бэкенда — только `Decimal`;
+  в число сумма превращается один раз, в `app.api.serialize`.
+- Даты — `ГГГГ-ММ-ДД`. Дата расчёта — переменная `APP_TODAY` (для демо `2026-09-26`), иначе сегодня.
+- Ошибки — один формат, сообщения по-русски:
   ```json
-  {"error": {"code": "validation_error", "message": "Сумма должна быть больше нуля", "field": "payments[0].amount", "row": null}}
+  {"error": {"code": "validation_error", "message": "Дата в формате ГГГГ-ММ-ДД", "field": "rows.0.date"}}
   ```
-  Коды: `validation_error` (422), `not_found` (404), `unauthorized` (401), `insufficient_data` (200 со статусом в теле, не ошибка), `llm_unavailable` (503), `internal` (500).
-- Сообщения об ошибках — **по-русски**, понятные пользователю.
-- CORS: разрешены origin из переменной `CORS_ORIGINS` (для будущего фронтенда).
+  Коды: `validation_error` 422, `unauthorized` 401, `not_found` 404, `rate_limited` 429, `llm_unavailable` 503, `internal` 500.
+- Нехватка данных — **не ошибка**: 200 и `dataQuality.sufficient = false` со списком `missing`.
 
-## Идентификация пользователя
+## Вход
 
-Данные синтетические, поэтому авторизация упрощённая. Один из трёх способов:
+| Клиент | Как |
+|---|---|
+| Сайт | `POST /api/auth/demo` → `Session` |
+| Telegram Mini App | `POST /api/auth/telegram` `{initData}` → `Session`. Подпись initData проверяется ключом бота; один Telegram-пользователь — всегда один `userId` |
 
-| Клиент | Как | Что делает сервер |
-|---|---|---|
-| Сайт | `POST /api/session` → получить `user_id`, дальше заголовок `X-User-Id: <user_id>` | Создаёт анонимный профиль (`web:<uuid4>`) |
-| Telegram-бот | Заголовки `X-Bot-Secret: <BOT_API_SECRET>` и `X-Telegram-User-Id: <id>` | Проверяет секрет, `user_id = tg:<sha256(TG_ID_SALT + id)[:16]>` |
-| Telegram Mini App | `POST /api/auth/telegram` с `init_data` → получить `user_id`, дальше `X-User-Id` | Проверяет подпись initData (HMAC-SHA256, ключ = HMAC("WebAppData", BOT_TOKEN)), `user_id` вычисляется **так же, как для бота** |
+`Session = {token, userId, displayName, mode: "demo" | "telegram"}`.
+Дальше каждый запрос — с заголовком `Authorization: Bearer <token>`, иначе 401.
 
-Благодаря одинаковой функции `user_id` у пользователя **один профиль** в боте и в Mini App. Функция живёт в `backend/app/api/identity.py`.
+## Обёртка объяснимости `Explained<T>`
+
+Все аналитические ответы и ответ помощника:
+```json
+{
+  "result": { ... },
+  "assumptions": ["Период: 2026-09-01 — 2026-09-26."],
+  "calculation": [{"label": "Можно тратить в день", "formula": "7 800 ₽ / 12 дн.", "value": 650}],
+  "sources": [{"title": "Банк России", "url": "https://..."}],
+  "limitations": ["Это не финансовая рекомендация."],
+  "dataQuality": {"sufficient": true, "missing": [], "coverageDays": 61}
+}
+```
 
 ## Эндпоинты
 
-| Метод и путь | Тело запроса | Ответ | Назначение |
+| Метод и путь | Тело | Ответ | Кто считает |
 |---|---|---|---|
-| `GET /api/health` | — | `{"status":"ok","llm_provider":"fake","version":"..."}` | Проверка живости |
-| `POST /api/session` | — | `SessionResponse` | Анонимная сессия для сайта |
-| `POST /api/auth/telegram` | `TelegramAuthRequest` | `SessionResponse` | Вход из Mini App |
-| `GET /api/profile` | — | `Profile` | Текущие данные (пустой профиль, если нет) |
-| `PUT /api/profile` | `Profile` | `Profile` | Полная замена данных (ручной ввод). `origin.kind = "manual"` ставит сервер |
-| `DELETE /api/profile` | — | `204` | Очистить данные |
-| `POST /api/profile/demo/{name}` | — | `Profile` | Загрузить демо-профиль: `p1`, `p2`, `p3` (из `data/demo/`) |
-| `POST /api/transactions/import?mode=append\|replace` | `multipart/form-data`, поле `file` (CSV, ≤ 1 МБ) | `ImportReport` | Импорт CSV |
-| `GET /api/summary` | — | `SummaryResponse` | Всё для дашборда: лимит, структура, риски, цели, происхождение данных |
-| `POST /api/simulate` | `SimulateRequest` | `SimulationResult` | «Что если» |
-| `POST /api/goal/plan` | `GoalPlanRequest` | `GoalPlan` | План накопления |
-| `POST /api/chat` | `ChatRequest` | `ChatResponse` | Вопрос AI-ассистенту |
-| `GET /api/chat/stream?message=...` | — | SSE: события `step` (вызов инструмента), `answer` (финальный `ChatResponse`) | Опционально (приоритет S) |
+| `GET /api/health` | — | `{status, llm_provider, version}` | — |
+| `POST /api/auth/demo` | — | `Session` | — |
+| `POST /api/auth/telegram` | `{initData}` | `Session` (401 — подпись неверна, 503 — бот не настроен) | — |
+| `GET /api/profile` | — | `Profile = {balance, incomes[{id,title,amount,dayOfMonth}], goals[Goal]}` | — |
+| `PUT /api/profile` | `{balance, incomes[{id?,title,amount,dayOfMonth}]}` | `Profile` | — |
+| `POST /api/demo/seed` | — | 204. Демо-набор студента (история диалогов сохраняется) | `core.load_demo_state` |
+| `DELETE /api/dataset` | — | 204. Очистить все данные | — |
+| `GET /api/transactions` | — | `Transaction[] = {id,date,amount,category,merchant,isRecurring}`, новые сверху | — |
+| `POST /api/transactions/import` | `{rows: [{date, amount, category, merchant}]}` (≤ 5 000; CSV разбирает фронтенд) | `ImportResult = {imported, rejected[{row,message}], warnings[]}` | `ingest.apply_import` |
+| `GET /api/analysis/overview` | — | `Explained<Overview>` | `core.build_overview` |
+| `GET /api/analysis/forecast` | — | `Explained<Forecast>` | `core.build_forecast` |
+| `GET /api/analysis/runway` | — | `Explained<Runway>` | `core.build_runway` |
+| `POST /api/analysis/impulse` | `{amount}` (> 0) | `Explained<ImpulseCheck>` | `core.check_impulse` |
+| `POST /api/goals` | `GoalDraft = {title, targetAmount, savedAmount, deadline \| null}` | 201, `Goal` | — |
+| `PATCH /api/goals/{id}` | `GoalDraft` | `Goal` (404 — «Цель не найдена.») | — |
+| `DELETE /api/goals/{id}` | — | 204 (404) | — |
+| `GET /api/goals/{id}/plan` | — | `Explained<GoalPlan>` (404) | `core.build_goal_plan` |
+| `POST /api/ask` | `{question (1–1000), scenarioId}` | `Explained<{text}>`; 429 — больше 20 вопросов в минуту; 503 — LLM недоступен | `ai.ask` |
+| `GET /api/history` | — | `HistoryEntry[]`, новые сверху | — |
+| `PUT /api/history/{id}` | `HistoryEntry = {id, scenarioId, title, createdAt, messages[]}` | `HistoryEntry` (сервер хранит как прислали) | — |
+| `DELETE /api/history` | — | 204 | — |
 
-## Поведение при неполных данных
+`scenarioId`: `expenses` | `budget` | `glossary` | `impulse` | `free` (промпты — `docs/ai-scenarios.md` в ветке `front`).
+`category`: `food` | `transport` | `subscriptions` | `entertainment` | `health` | `education` | `rent` | `other`.
+Поля `Overview`, `Forecast`, `Runway`, `ImpulseCheck`, `GoalPlan` — ровно как в `types.ts`.
 
-- `balance == null` → `GET /api/summary` возвращает `runway.status = "insufficient_data"` и список `runway.missing`. Это **не HTTP-ошибка**.
-- Нет обязательных платежей → расчёт выполняется, в `assumptions` добавляется `no_payments`.
-- Нет подтверждённого поступления → горизонт 30 дней, `horizon_is_assumed = true`, допущение `horizon_default`.
-- Нет транзакций → `breakdown = null`, риск `no_data` с текстом «Загрузите операции, чтобы увидеть структуру расходов».
+## Как API вызывает core, ingest и ai
+
+`app/api/engine.py` ищет функцию по имени при каждом запросе. Пока её нет в `main`, отвечает заглушка из
+`app/api/stubs.py`: правильная форма и `dataQuality.sufficient = false` («расчёт ещё не подключён»).
+После мержа функции API подхватывает её без правок. Сигнатуры (модели — раздел «Модели фронтенда» в `backend/app/models.py`):
+
+```python
+# app.core (Саша)
+build_overview(state: UserState, as_of: date) -> Explained
+build_forecast(state: UserState, as_of: date) -> Explained
+build_runway(state: UserState, as_of: date) -> Explained
+check_impulse(state: UserState, amount: Decimal, as_of: date) -> Explained
+build_goal_plan(state: UserState, goal_id: str, as_of: date) -> Explained | None   # None → 404
+load_demo_state() -> UserState
+# app.ingest (Саша)
+apply_import(state: UserState, rows: list[ImportRow], as_of: date) -> tuple[UserState, ImportResult]
+# app.ai (Соня)
+async ask(question: str, scenario_id: ScenarioId, state: UserState, as_of: date, *, llm, kb) -> Explained
+load_kb(path: str) -> KnowledgeBase          # необязательно; без неё kb=None
+class LLMUnavailable(Exception)              # API превращает в 503
+```
+
+В `Explained.result` ключи — camelCase как в `types.ts`, деньги — `Decimal`, даты — `date`: переводит API.
 
 ## Статика
 
-Если существует папка `frontend/dist`, сервер отдаёт её по `/` (для будущего фронтенда). Иначе `/` делает редирект на `/docs`.
+Если есть `frontend/dist`, сервер отдаёт его по `/`. Иначе `/` → редирект на `/docs`.
