@@ -75,9 +75,7 @@ API сделан под фронтенд ruina696 (ветка `front`): форм
 
 ## Как API вызывает core, ingest и ai
 
-`app/api/engine.py` ищет функцию по имени при каждом запросе. Пока её нет в `main`, отвечает заглушка из
-`app/api/stubs.py`: правильная форма и `dataQuality.sufficient = false` («расчёт ещё не подключён»).
-После мержа функции API подхватывает её без правок. Сигнатуры (модели — раздел «Модели фронтенда» в `backend/app/models.py`):
+`app/api/engine.py` вызывает функции ниже напрямую, без заглушек. Сигнатуры (модели — раздел «Модели фронтенда» в `backend/app/models.py`):
 
 ```python
 # app.core (Саша)
@@ -91,7 +89,7 @@ load_demo_state() -> UserState
 apply_import(state: UserState, rows: list[ImportRow], as_of: date) -> tuple[UserState, ImportResult]
 # app.ai (Соня)
 async ask(question: str, scenario_id: ScenarioId, state: UserState, as_of: date, *, llm, kb) -> Explained
-load_kb(path: str) -> KnowledgeBase          # необязательно; без неё kb=None
+load_kb(path: str) -> KnowledgeBase          # нет файла — пустая база
 class LLMUnavailable(Exception)              # API превращает в 503
 ```
 
