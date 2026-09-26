@@ -33,6 +33,25 @@ from app.core import DEMO_AS_OF, load_demo_state  # noqa: E402
 from app.models import UserState  # noqa: E402
 
 REPORT = ROOT / "docs" / "ai_eval.md"
+
+# Прогоны на настоящей модели (`--llm`) — кто, где, что получилось. Модель на этой машине не запускается,
+# поэтому итоги прогонов команды записываются сюда и попадают в отчёт при каждой генерации.
+LLM_RUNS = [
+    {
+        "date": "26.09.2026",
+        "who": "Вероника",
+        "model": "Ollama `qwen2.5:7b`",
+        "hardware": "ПК с GPU RTX 4060",
+        "version": "до правок #39 (промпт с расчётом, таймаут на вызов 45 с)",
+        "passed": "30 из 30",
+        "numbers": "15 из 15",
+        "refusals": "10 из 10",
+        "false_refusals": "0 из 20",
+        "sources": "14 из 14",
+        "model_ok": "15 из 15",
+        "seconds": "68 с на 30 вопросов",
+    },
+]
 KB_PATH = ROOT / "data" / "knowledge_base" / "kb.json"
 CORE_FUNCS = ("build_runway", "check_impulse", "build_forecast", "build_overview", "build_goal_plan")
 NB = "\u00a0"
@@ -233,6 +252,29 @@ def _short(text: str, n: int = 90) -> str:
     return text if len(text) <= n else text[: n - 1] + "…"
 
 
+def _llm_runs_section() -> list[str]:
+    if not LLM_RUNS:
+        return []
+    out = [
+        "## Прогоны на настоящей модели",
+        "",
+        "Модель только переписывает шаблонный ответ; «без шаблона» — ответ модели прошёл проверку чисел "
+        "и дошёл до пользователя как есть. Повторить: настройки модели в `.env` (`docs/03_deploy.md` §9) → "
+        "`python scripts/eval_ai.py --llm`.",
+        "",
+        "| Дата | Кто | Модель | Где | Версия | Пройдено | Числа | Отказы | Ложные отказы | Источники "
+        "| Без шаблона | Время |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for r in LLM_RUNS:
+        out.append(
+            f"| {r['date']} | {r['who']} | {r['model']} | {r['hardware']} | {r['version']} | {r['passed']} | "
+            f"{r['numbers']} | {r['refusals']} | {r['false_refusals']} | {r['sources']} | {r['model_ok']} | "
+            f"{r['seconds']} |"
+        )
+    return [*out, ""]
+
+
 def render(rows: list[Row], provider: str) -> str:
     normal = [r for r in rows if r.case.expect != "refusal"]
     risky = [r for r in rows if r.case.expect == "refusal"]
@@ -295,6 +337,8 @@ def render(rows: list[Row], provider: str) -> str:
             f"| {i} | {r.case.scenario}{profile} | {_short(r.case.question, 60)} | {expect} | {r.kind} | "
             f"{', '.join(r.calls) or '—'} | {numbers} | {source} | {_short(r.text) or '—'} | {status} |"
         )
+    at = lines.index("## Вопросы")
+    lines[at:at] = _llm_runs_section()
     lines += [
         "",
         "## Как читать",
