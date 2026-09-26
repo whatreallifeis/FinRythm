@@ -9,7 +9,7 @@
                    ollama (по желанию, --profile llm) ◄── api   (наружу не открыт)
 ```
 
-- Фронтенд собирается из `origin/front` без правок кода, в режиме реального API (`VITE_USE_MOCK=false`).
+- Фронтенд собирается из `origin/front` без правок кода; моков в нём нет, все запросы идут в API.
 - Наружу открыты только 80 и 443. API и Ollama доступны только внутри Docker.
 - Сайт и Swagger закрыты паролем (basic auth). `/api/*` без пароля: там свой токен сессии.
 - Всё, что описано здесь, проверяет CI (job `deploy`): сборка фронтенда, стенд целиком, пароль, сценарий «демо → календарь».
@@ -203,7 +203,7 @@ uvicorn app.main:app --reload --app-dir backend                   # http://local
 # фронтенд — отдельной папкой из ветки front, код не меняем
 git worktree add ../FinRythm-front origin/front
 cd ../FinRythm-front/frontend
-printf 'VITE_USE_MOCK=false\nVITE_API_URL=http://localhost:8000\n' > .env.local
+printf 'VITE_API_URL=http://localhost:8000\n' > .env.local
 npm ci && npm run dev                                             # http://localhost:5173
 ```
 
