@@ -1,0 +1,336 @@
+@import 'tailwindcss';
+
+/* ===========================================================================
+   Дизайн-токены.
+   Единственное место, где живут цвета, радиусы и отступы продукта.
+   Сайт и Telegram Mini App используют ОДНИ И ТЕ ЖЕ токены — поэтому
+   оформление идентично на обеих платформах.
+
+   Мы сознательно НЕ наследуем themeParams Telegram (цвета темы пользователя):
+   иначе Mini App выглядел бы у каждого по-своему и отличался от сайта.
+   Из Telegram берём только светлая/тёмная схема (см. platform/telegram.ts).
+   =========================================================================== */
+
+:root {
+  color-scheme: dark;
+
+  --bg: #0f1115;
+  --bg-elevated: #14171e;
+  --surface: #181b22;
+  --surface-hover: #1f232c;
+  --border: #272b35;
+
+  --text: #eceef2;
+  --text-muted: #8e95a3;
+  --text-inverse: #0f1115;
+
+  --accent: #ffdd2d;
+  --accent-hover: #ffe45c;
+  --accent-text: #0f1115;
+
+  --positive: #3ba55d;
+  --negative: #e5484d;
+  --warning: #f5a623;
+  --info: #4a90d9;
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+
+  /* Перезаписываются из платформенного слоя: в Telegram это safe-area + хедер. */
+  --inset-top: 0px;
+  --inset-bottom: 0px;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #f5f6f8;
+  --bg-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-hover: #f0f1f4;
+  --border: #e3e5ea;
+
+  --text: #15181e;
+  --text-muted: #6b7280;
+  --text-inverse: #ffffff;
+
+  --accent: #ffdd2d;
+  --accent-hover: #f5d016;
+  --accent-text: #15181e;
+}
+
+/*
+  `@theme inline` в Tailwind v4 связывает утилиты с CSS-переменными по ссылке,
+  а не по значению. Благодаря этому bg-surface / text-muted переключаются
+  вместе с темой в рантайме, без пересборки.
+*/
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-border: var(--border);
+
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-inverse: var(--text-inverse);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-text: var(--accent-text);
+
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+
+  --radius-card: var(--radius-md);
+}
+
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family:
+      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    /* В webview Telegram на iOS 100vh врёт — используем динамическую высоту. */
+    min-height: 100dvh;
+    overscroll-behavior-y: none;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+  }
+
+  /* Числа в таблицах и суммах не должны «прыгать» при изменении значений. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* ===========================================================================
+   Движение как в iOS: коротко, с лёгким пружинным возвратом.
+   Жест чуть тянет карточки, нажатие их поджимает. Ничего не циклится
+   и не отвлекает от цифр.
+   Вне слоя Tailwind, чтобы эти переходы не перебивались transition-colors.
+   =========================================================================== */
+
+:root {
+  --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-spring: cubic-bezier(0.22, 1.14, 0.36, 1);
+}
+
+button,
+a,
+[role='button'] {
+  transition:
+    scale 0.32s var(--ease-spring),
+    background-color 0.2s var(--ease-ios),
+    color 0.2s var(--ease-ios),
+    border-color 0.2s var(--ease-ios),
+    opacity 0.2s var(--ease-ios);
+}
+
+button:active:not(:disabled),
+a:active {
+  scale: 0.975;
+}
+
+[role='button']:active {
+  scale: 0.988;
+}
+
+.motion-stage {
+  --sx: 1;
+  --sy: 1;
+}
+
+.motion-stage .ios-surface {
+  transform: scaleX(var(--sx)) scaleY(var(--sy));
+  transform-origin: center center;
+  transition: transform 0.52s var(--ease-spring);
+}
+
+.motion-stage[data-dragging='true'] .ios-surface {
+  transition: transform 0.12s linear;
+}
+
+.screen-in {
+  animation: screen-in 0.38s var(--ease-ios);
+}
+
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+.ios-reveal {
+  animation: ios-reveal 0.32s var(--ease-ios);
+}
+
+@keyframes ios-reveal {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+.ios-fade-in {
+  animation: ios-fade-in 0.24s var(--ease-ios);
+}
+
+.ios-fade-out {
+  animation: ios-fade-out 0.2s var(--ease-ios) forwards;
+}
+
+@keyframes ios-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ios-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+.ios-pop-in,
+.ios-menu-in {
+  animation: ios-pop 0.34s var(--ease-ios);
+}
+
+.ios-pop-out {
+  animation: ios-pop-out 0.2s var(--ease-ios) forwards;
+}
+
+.ios-menu-in {
+  transform-origin: top right;
+  animation-duration: 0.26s;
+}
+
+@keyframes ios-pop {
+  from {
+    opacity: 0;
+    scale: 0.96;
+    translate: 0 10px;
+  }
+
+  to {
+    opacity: 1;
+    scale: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes ios-pop-out {
+  to {
+    opacity: 0;
+    scale: 0.98;
+    translate: 0 6px;
+  }
+}
+
+.ios-chevron {
+  display: inline-block;
+  transition: rotate 0.34s var(--ease-ios);
+}
+
+.tab-icon {
+  display: inline-block;
+  transition:
+    scale 0.42s var(--ease-spring),
+    translate 0.42s var(--ease-spring);
+}
+
+.tab-icon-active {
+  scale: 1.06;
+  translate: 0 -1px;
+}
+
+.ios-progress {
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.ios-progress > span {
+  display: block;
+  width: 35%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  animation: ios-progress 1.05s var(--ease-ios) infinite;
+}
+
+@keyframes ios-progress {
+  from {
+    translate: -120% 0;
+  }
+
+  to {
+    translate: 320% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .screen-in,
+  .ios-reveal,
+  .ios-fade-in,
+  .ios-fade-out,
+  .ios-pop-in,
+  .ios-pop-out,
+  .ios-menu-in,
+  .ios-progress > span {
+    animation: none;
+  }
+
+  .motion-stage .ios-surface,
+  .ios-chevron,
+  .tab-icon,
+  button,
+  a,
+  [role='button'] {
+    transition: none;
+  }
+
+  button:active:not(:disabled),
+  a:active,
+  [role='button']:active,
+  .tab-icon-active {
+    scale: none;
+    translate: none;
+  }
+}
