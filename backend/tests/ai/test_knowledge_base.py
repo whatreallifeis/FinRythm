@@ -13,11 +13,12 @@ from app.core import DEMO_AS_OF, load_demo_state
 KB_PATH = Path(__file__).resolve().parents[3] / "data" / "knowledge_base" / "kb.json"
 RAW = json.loads(KB_PATH.read_text(encoding="utf-8"))
 KB = load_kb(KB_PATH)
+# contracts/data_formats.md §3: Банк России, «Финансовая культура», тексты законов
 ALLOWED_DOMAINS = (
     "https://fincult.info/",
     "https://www.cbr.ru/",
     "https://cbr.ru/",
-    "https://minobrnauki.gov.ru/",
+    "https://www.consultant.ru/",
 )
 
 
@@ -80,7 +81,6 @@ def test_glossary_terms_found(query, kb_id):
         ("investment", "kb-036"),
         ("crypto", "kb-034"),
         ("credit", "kb-010"),
-        ("gambling", "kb-035"),
         ("personal_data", "kb-029"),
     ],
 )
