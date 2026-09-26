@@ -178,3 +178,26 @@ def test_unknown_path_error_format(client):
     response = client.get("/api/nope")
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "not_found"
+
+
+def test_folder_id_from_settings_reaches_openai_client(tmp_path, monkeypatch):
+    """Алиса AI: ID каталога из .env должен попасть в окружение, откуда его берёт клиент openai."""
+    from app.config import Settings
+    from app.main import create_app
+    from fastapi.testclient import TestClient
+
+    # пустое значение через monkeypatch — после теста переменная вернётся к исходному состоянию
+    monkeypatch.setenv("OPENAI_PROJECT_ID", "")
+    settings = Settings(
+        _env_file=None,
+        database_path=str(tmp_path / "db.sqlite3"),
+        llm_provider="openai_compat",
+        llm_base_url="https://ai.api.cloud.yandex.net/v1",
+        llm_api_key="test-key",
+        llm_model="gpt://b1gtestfolder/aliceai-llm",
+        openai_project_id="b1gtestfolder",
+    )
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/api/health").json()["llm_provider"] == "openai_compat"
+        assert client.app.state.llm is not None
+        assert client.app.state.llm._client.project == "b1gtestfolder"
