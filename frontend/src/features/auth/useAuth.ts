@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePlatform } from '@/platform';
 import { api } from '@/shared/api/client';
-import { useDatasetStore } from '@/shared/api/dataset';
 import { sessionSchema } from '@/shared/api/schemas';
 import { useSessionStore } from './session';
 
@@ -43,7 +42,6 @@ export function useAuth() {
 
   const logout = useCallback(async () => {
     await api.clearDataset();
-    useDatasetStore.getState().setReady(false);
     queryClient.clear();
     await platform.storage.remove(STORAGE_KEY);
     signOut();
@@ -60,10 +58,7 @@ export function useAuth() {
       if (auth.kind === 'telegram') {
         setStatus('authenticating');
         try {
-          const session = await api.authTelegram(
-            auth.initData,
-            platform.userHint?.displayName ?? 'Пользователь',
-          );
+          const session = await api.authTelegram(auth.initData);
           signIn(session);
           await platform.storage.set(STORAGE_KEY, JSON.stringify(session));
         } catch (error) {

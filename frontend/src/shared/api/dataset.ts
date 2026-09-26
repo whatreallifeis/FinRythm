@@ -1,36 +1,17 @@
-import { create } from 'zustand';
+import { useTransactions } from './hooks';
 
-const KEY = 'fin:dataset';
-
-/** Данные уже подставлены в этой браузерной сессии. */
-export function readDatasetReady() {
-  try {
-    return localStorage.getItem(KEY) === 'ready';
-  } catch {
-    return false;
-  }
+/**
+ * Есть ли у пользователя данные — решает бэкенд: набор загружен, если есть операции.
+ *
+ * Раньше это был флаг в localStorage, и он расходился с сервером: другой браузер,
+ * очищенная база или импорт CSV без демо давали неверное состояние экранов.
+ */
+export function useDatasetStatus() {
+  const transactions = useTransactions();
+  return {
+    ready: (transactions.data?.length ?? 0) > 0,
+    loading: transactions.isPending,
+  };
 }
 
-function writeDatasetReady(ready: boolean) {
-  try {
-    if (ready) localStorage.setItem(KEY, 'ready');
-    else localStorage.removeItem(KEY);
-  } catch {
-    // Приватный режим: флаг живёт только до перезагрузки.
-  }
-}
-
-interface DatasetState {
-  ready: boolean;
-  setReady: (ready: boolean) => void;
-}
-
-export const useDatasetStore = create<DatasetState>((set) => ({
-  ready: readDatasetReady(),
-  setReady: (ready) => {
-    writeDatasetReady(ready);
-    set({ ready });
-  },
-}));
-
-export const useDatasetReady = () => useDatasetStore((state) => state.ready);
+export const useDatasetReady = () => useDatasetStatus().ready;

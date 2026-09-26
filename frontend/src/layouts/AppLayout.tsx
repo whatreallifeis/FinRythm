@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { usePlatform } from '@/platform';
-import { useDatasetReady } from '@/shared/api/dataset';
+import { useDatasetStatus } from '@/shared/api/dataset';
 import type { MainButtonConfig } from '@/platform';
 import { Button } from '@/shared/ui';
 import { Disclaimer } from '@/features/explain/Disclaimer';
@@ -29,9 +29,9 @@ export function AppLayout() {
   useEffect(() => subscribeBackButton((h) => setBackHandler(() => h)), [subscribeBackButton]);
 
   const hasOwnMainButton = mainButton !== null;
-  const ready = useDatasetReady();
+  const { ready, loading } = useDatasetStatus();
   const { pathname } = useLocation();
-  const content = !ready && pathname !== '/app/import' ? (
+  const content = loading ? null : !ready && pathname !== '/app/import' ? (
     <Navigate to="/app/import" replace />
   ) : (
     <MotionStage>
