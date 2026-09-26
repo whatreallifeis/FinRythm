@@ -114,4 +114,5 @@ def goal_plan(result: dict) -> None:
 
 
 def ask_answer(result: dict) -> None:
-    assert set(result) == {"text"} and isinstance(result["text"], str) and result["text"]
+    # zod: z.object({ text: z.string() }) — пустая строка допустима (при sufficient=false её не показывают)
+    assert set(result) == {"text"} and isinstance(result["text"], str)
