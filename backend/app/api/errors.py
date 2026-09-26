@@ -54,6 +54,14 @@ def _validation_message(error: dict) -> str:
             return f"Слишком много элементов: не больше {ctx.get('max_length')}"
         case "json_invalid":
             return "Некорректный JSON"
+        case "string_type":
+            return "Нужен текст"
+        case "bool_type" | "bool_parsing":
+            return "Нужно да или нет"
+        case "list_type":
+            return "Нужен список"
+        case "dict_type" | "model_type" | "model_attributes_type":
+            return "Нужен объект"
         case "value_error":
             message = str(error.get("msg", ""))
             return message.removeprefix("Value error, ") or "Проверьте введённые данные"
@@ -61,6 +69,8 @@ def _validation_message(error: dict) -> str:
 
 
 def _field(error: dict) -> str | None:
+    if error.get("type") == "json_invalid":
+        return None  # в loc — позиция символа в теле, а не поле
     parts = [str(part) for part in error.get("loc", ()) if part not in ("body", "query", "path")]
     return ".".join(parts) or None
 

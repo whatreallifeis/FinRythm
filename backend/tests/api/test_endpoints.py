@@ -29,8 +29,14 @@ def _seeded(client, auth) -> None:
 
 
 def test_to_json_money_and_dates():
-    value = {"a": Decimal("18430.005"), "b": [date(2026, 10, 5), None, True, 3], "c": {"d": Decimal("-1")}}
-    assert to_json(value) == {"a": 18430.01, "b": ["2026-10-05", None, True, 3], "c": {"d": -1.0}}
+    value = {"a": Decimal("18430.50"), "b": [date(2026, 10, 5), None, True, 3], "c": {"d": Decimal("-1")}}
+    assert to_json(value) == {"a": 18430.5, "b": ["2026-10-05", None, True, 3], "c": {"d": -1.0}}
+
+
+def test_to_json_keeps_shares_precise():
+    """#24: доля категории — не деньги, до копеек не округляется."""
+    value = {"share": Decimal("0.3945"), "amount": Decimal("16540.00")}
+    assert to_json(value) == {"share": 0.3945, "amount": 16540.0}
 
 
 def test_public_explained_is_camel_case():
@@ -395,3 +401,81 @@ def test_root_redirects_to_docs(client):
     response = client.get("/", follow_redirects=False)
     assert response.status_code in (302, 307)
     assert response.headers["location"] == "/docs"
+
+
+# ---------------------------------------------------------------- исправления по issue
+
+
+def test_import_reports_file_row_numbers(client, auth, monkeypatch):
+    """#36: если фронтенд прислал номер строки файла, ошибки и предупреждения ссылаются на него."""
+
+    def fake(state, rows, as_of):
+        result = ImportResult(
+            imported=1,
+            rejected=[RejectedRow(row=2, message="Дата операции в будущем")],
+            warnings=["Строка 1: неизвестная категория «кафе» заменена на «другое».", "Новых операций нет."],
+        )
+        return state, result
+
+    monkeypatch.setattr(ingest, "apply_import", fake, raising=False)
+    rows = [
+        {"date": "2026-09-20", "amount": -100, "category": "кафе", "merchant": "Кофейня", "row": 4},
+        {"date": "2026-09-27", "amount": -540, "category": "food", "merchant": "Супермаркет", "row": 7},
+    ]
+    body = client.post("/api/transactions/import", json={"rows": rows}, headers=auth).json()
+    assert body["rejected"] == [{"row": 7, "message": "Дата операции в будущем"}]
+    assert body["warnings"][0].startswith("Строка 4:")
+    assert body["warnings"][1] == "Новых операций нет."
+
+
+def test_import_without_file_rows_keeps_list_numbers(client, auth, monkeypatch):
+    def fake(state, rows, as_of):
+        return state, ImportResult(imported=0, rejected=[RejectedRow(row=1, message="Нулевая сумма")])
+
+    monkeypatch.setattr(ingest, "apply_import", fake, raising=False)
+    rows = [{"date": "2026-09-20", "amount": 0, "category": "food", "merchant": "x"}]
+    body = client.post("/api/transactions/import", json={"rows": rows}, headers=auth).json()
+    assert body["rejected"] == [{"row": 1, "message": "Нулевая сумма"}]
+
+
+def test_import_with_real_ingest_uses_file_rows(client, auth):
+    rows = [
+        {"date": "2026-09-20", "amount": -100, "category": "food", "merchant": "Кофейня", "row": 2},
+        {"date": "2026-09-27", "amount": -540, "category": "food", "merchant": "Супермаркет", "row": 3},
+    ]
+    body = client.post("/api/transactions/import", json={"rows": rows}, headers=auth).json()
+    assert body["imported"] == 1
+    assert [item["row"] for item in body["rejected"]] == [3]
+
+
+def test_broken_json_has_no_field(client, auth):
+    """#30: у битого JSON в loc позиция символа, а не поле."""
+    response = client.post(
+        "/api/transactions/import",
+        content=b'{"rows": [',
+        headers={**auth, "Content-Type": "application/json"},
+    )
+    assert response.status_code == 422
+    expected = {"code": "validation_error", "message": "Некорректный JSON", "field": None}
+    assert response.json()["error"] == expected
+
+
+def test_null_instead_of_text_is_explained(client, auth):
+    """#30: null в текстовом поле — понятный текст, а не общий."""
+    rows = [{"date": "2026-09-01", "amount": -1, "category": "food", "merchant": None}]
+    response = client.post("/api/transactions/import", json={"rows": rows}, headers=auth)
+    assert response.json()["error"] == {
+        "code": "validation_error",
+        "message": "Нужен текст",
+        "field": "rows.0.merchant",
+    }
+
+
+def test_overview_share_is_not_rounded_to_cents(client, auth):
+    """#24 на настоящем core: доли в обзоре не обрезаются до сотых."""
+    _seeded(client, auth)
+    overview = client.get("/api/analysis/overview", headers=auth).json()["result"]
+    shares = [item["share"] for item in overview["byCategory"]]
+    assert shares
+    assert any(round(share, 2) != share for share in shares)
+    assert abs(sum(shares) - 1) < 0.001
