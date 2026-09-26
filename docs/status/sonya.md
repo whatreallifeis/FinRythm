@@ -1,6 +1,6 @@
 # Статус: sonya
 
-Обновляется в конце каждой задачи. Последнее обновление: 27.09.2026, AF1
+Обновляется в конце каждой задачи. Последнее обновление: 27.09.2026, AF2
 
 ## Сделано
 - **A1. LLMClient и FakeLLM** (`backend/app/ai/llm/`): интерфейс `LLMClient`, `ToolCall`, `LLMReply`; `FakeLLM` без сети; `get_llm(settings)` (пока только `fake`). 48 тестов в `backend/tests/ai/`.
@@ -8,11 +8,14 @@
 
 - **AF1. Точка входа `ask()` для `POST /api/ask` (заглушка).** `from app.ai import ask`; `await ask(question, scenario_id, state, as_of, *, llm, kb) -> Explained`. Пока всегда `sufficient=False`, сценарии — в AF2.
 
+- **AF2. Сценарии без LLM** (`app/ai/scenarios.py`): `impulse`, `budget`, `expenses`, `glossary`, `free` — текст на «вы» по шаблону из чисел `Explained` Саши; `assumptions`, `calculation`, `limitations`, `data_quality` переносятся из core без пересчёта. У каждого сценария — ветка нехватки данных (`sufficient=False` + `missing`). Проверено на настоящих расчётах SF3 и демо-профиле: 14 900 ₽ → подождать «Подработку» 10 октября, 3 000 ₽ → подождать стипендию, 500 ₽ → лимит 420 ₽, бюджет — 475 ₽ в день. Сумма из вопроса — `app/ai/amounts.py` («3к», «14 900 ₽», «2,5 тыс»; годы и дни не путает с суммой).
+
 ## В работе
 - A0 (доступ к LLM): ключа пока нет, работаем на `LLM_PROVIDER=fake`.
-- AF2 — сценарии `impulse`, `budget`, `expenses`, `glossary`, `free` без LLM (режим `fake`).
+- AF3 — фильтр рискованных запросов.
 
 ## Заблокировано / жду от других
+- `glossary` работает, только когда API передаёт базу знаний (`kb`) — она появится в AF4.
 - Реальные числа `plan_goal`, `spending_breakdown`, `detect_risks`, `build_snapshot` появятся с задачами Саши S3–S8 (сейчас заглушки); `calculate_runway`/`simulate` уже настоящие (S2).
 
 ## Что важно знать остальным
