@@ -2,10 +2,10 @@
 
 from fastapi import APIRouter
 
-from app.api.routes import profile, session
+from app.api.routes import analysis, assistant, data, goals, profile, session
 
 router = APIRouter(prefix="/api")
-router.include_router(session.router)
-router.include_router(profile.router)
+for module in (session, profile, data, analysis, goals, assistant):
+    router.include_router(module.router)
 
 __all__ = ["router"]
