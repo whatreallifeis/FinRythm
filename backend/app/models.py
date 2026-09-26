@@ -2,11 +2,11 @@
 ОБЩИЙ КОНТРАКТ ПРОЕКТА «ФинРитм».
 
 Этот файл — единственный источник правды о структуре данных для всех модулей:
-core (Саша), ai (Соня), api/storage (Вероника), ingest (Саша), bot и e2e (Кирилл).
+core (Саша), ai (Соня), api/storage (Вероника), ingest (Саша), e2e (Саша).
 
 Правила изменения:
   * Менять только через PR с меткой `contract`.
-  * Ревью обязательно от Вероники и от владельца модуля, которого касается изменение.
+  * Перед мержем — issue to:veronika со ссылкой на PR (ревью не требуется, см. CLAUDE.md).
   * Добавлять поля можно (с default), удалять и переименовывать — только по согласованию всех.
 
 Деньги — всегда Decimal. float для денег запрещён.
@@ -17,9 +17,9 @@ from __future__ import annotations
 import datetime as dt
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class _Model(BaseModel):
@@ -311,3 +311,126 @@ class SessionResponse(_Model):
 
 class TelegramAuthRequest(_Model):
     init_data: str
+
+
+# ================================================================ модели фронтенда
+#
+# Фронтенд ruina696 (ветка `front`, frontend/src/shared/api/types.ts) ждёт другие формы данных,
+# чем модели выше. Её указания по бэкенду в приоритете (см. CLAUDE.md), поэтому новый API
+# строится на моделях этого раздела. Старые модели не удаляются: на них работают core и ai.
+#
+# Внутри деньги — Decimal, поля — snake_case. В JSON для фронтенда API переводит поля в camelCase,
+# а деньги в числа — только на границе HTTP (backend/app/api/).
+
+CategoryId = Literal[
+    "food", "transport", "subscriptions", "entertainment", "health", "education", "rent", "other"
+]
+CATEGORY_IDS: tuple[str, ...] = get_args(CategoryId)
+
+ScenarioId = Literal["expenses", "budget", "glossary", "impulse", "free"]
+SCENARIO_IDS: tuple[str, ...] = get_args(ScenarioId)
+
+
+class Operation(_Model):
+    """Операция из выписки. amount < 0 — расход, amount > 0 — доход. Во фронтенде — Transaction."""
+
+    id: str
+    date: dt.date
+    amount: Decimal = Field(max_digits=12, decimal_places=2)
+    category: CategoryId = "other"
+    merchant: str = Field(default="", max_length=200)
+    is_recurring: bool = False
+
+
+class IncomeRule(_Model):
+    """Регулярное поступление: стипендия, зарплата, подработка — каждый месяц в один и тот же день."""
+
+    id: str
+    title: str = Field(min_length=1, max_length=100)
+    amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    day_of_month: int = Field(ge=1, le=31)
+
+
+class SavingGoal(_Model):
+    """Цель накопления. Во фронтенде — Goal."""
+
+    id: str
+    title: str = Field(min_length=1, max_length=100)
+    target_amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    saved_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=12, decimal_places=2)
+    deadline: dt.date | None = None
+
+    @model_validator(mode="after")
+    def _saved_not_above_target(self) -> SavingGoal:
+        if self.saved_amount > self.target_amount:
+            raise ValueError("Накоплено не может быть больше суммы цели")
+        return self
+
+
+class UserState(_Model):
+    """Все данные одного пользователя для нового API. Хранится в SQLite целиком (JSON)."""
+
+    balance: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
+    incomes: list[IncomeRule] = Field(default_factory=list)
+    goals: list[SavingGoal] = Field(default_factory=list)
+    transactions: list[Operation] = Field(default_factory=list)
+    # Сохранённые диалоги помощника (HistoryEntry фронтенда). API хранит их как есть, core их не читает.
+    history: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ImportRow(_Model):
+    """Строка импорта. CSV разбирает фронтенд и присылает строки JSON-ом."""
+
+    date: dt.date
+    amount: Decimal
+    category: str = "other"  # неизвестная категория → "other" с предупреждением (решает ingest)
+    merchant: str = ""
+
+
+class RejectedRow(_Model):
+    row: int = Field(ge=1)  # номер строки в присланном списке, начиная с 1
+    message: str  # по-русски, для пользователя
+
+
+class ImportResult(_Model):
+    imported: int = Field(ge=0)
+    rejected: list[RejectedRow] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------- обёртка объяснимости
+
+
+class CalcStep(_Model):
+    """Шаг расчёта: «Можно тратить в день» · «7 800 ₽ / 12 дней» · 650."""
+
+    label: str
+    formula: str  # человекочитаемая формула с подставленными числами
+    value: Decimal
+
+
+class SourceRef(_Model):
+    title: str
+    url: str
+
+
+class DataQuality(_Model):
+    sufficient: bool  # False — фронтенд показывает, чего не хватает, и не показывает result
+    missing: list[str] = Field(default_factory=list)  # «текущий баланс», «операции за текущий месяц»
+    coverage_days: int = Field(default=0, ge=0)  # за сколько дней есть операции
+
+
+class Explained(_Model):
+    """Каждый аналитический ответ нового API (Explained<T> во фронтенде).
+
+    result — словарь с ключами ровно как в types.ts (camelCase: todaySafeSpend, redDays, ...),
+    деньги в нём — Decimal. При data_quality.sufficient = False result может быть «пустым» ответом
+    нужной формы (нули и пустые списки).
+    """
+
+    result: dict[str, Any]
+    assumptions: list[str] = Field(default_factory=list)
+    calculation: list[CalcStep] = Field(default_factory=list)
+    sources: list[SourceRef] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    data_quality: DataQuality
