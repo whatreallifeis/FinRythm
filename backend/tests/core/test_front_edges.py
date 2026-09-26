@@ -262,3 +262,14 @@ def test_overview_shares_between_0_and_1():
 
     assert all(D(0) <= s["share"] <= D(1) for s in r["byCategory"])
     assert D("0.99") <= sum(s["share"] for s in r["byCategory"]) <= D("1.01")
+
+
+def test_impulse_without_incomes_says_horizon_is_assumed():
+    """QA S13: без поступлений лимит считается на условный горизонт — это видно в допущениях."""
+    state = UserState(balance=D("1000"))
+    e = check_impulse(state, D("300"), DEMO_AS_OF)
+
+    assert e.result["todaySafeSpendBefore"] == D("71")  # 1 000 / 14 дней
+    assert any("Поступлений в профиле нет" in a and "10 октября" in a for a in e.assumptions)
+    with_income = check_impulse(load_demo_state(), D("300"), DEMO_AS_OF)
+    assert not any("Поступлений в профиле нет" in a for a in with_income.assumptions)
