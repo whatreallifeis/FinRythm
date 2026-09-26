@@ -8,14 +8,10 @@ from __future__ import annotations
 
 import datetime as dt
 
+from app.ai import scenarios
 from app.ai.llm.base import LLMClient
 from app.ai.tools import KnowledgeSearch
-from app.models import SCENARIO_IDS, DataQuality, Explained, ScenarioId, UserState
-
-COMMON_LIMITS = [
-    "Расчёт сделан по загруженным данным. Банковские счета не подключены.",
-    "Это не инвестиционная рекомендация и не операция с деньгами. Решение остаётся за вами.",
-]
+from app.models import SCENARIO_IDS, Explained, ScenarioId, UserState
 
 
 async def ask(
@@ -29,15 +25,8 @@ async def ask(
 ) -> Explained:
     """Ответ помощника на вопрос пользователя в сценарии scenario_id.
 
-    Заглушка AF1: сигнатура и форма ответа окончательные, сценарии появятся в AF2.
+    Сейчас текст собирается по шаблонам (режим fake); реальный LLM подключается в AF5.
     """
     if scenario_id not in SCENARIO_IDS:
         raise ValueError(f"Неизвестный сценарий {scenario_id!r}. Доступны: {', '.join(SCENARIO_IDS)}.")
-    return Explained(
-        result={"text": ""},
-        limitations=COMMON_LIMITS,
-        data_quality=DataQuality(
-            sufficient=False,
-            missing=["помощник ещё настраивается — попробуйте задать вопрос чуть позже"],
-        ),
-    )
+    return scenarios.run(scenario_id, question, state, as_of, kb)
