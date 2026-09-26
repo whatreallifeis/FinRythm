@@ -1,0 +1,49 @@
+# Тестовый сервер (Рег.облако и любой VPS с Docker). Запуск из корня репозитория:
+#   docker compose -f deploy/compose.yml --env-file .env up -d --build
+# С локальной моделью Ollama:
+#   docker compose -f deploy/compose.yml --env-file .env --profile llm up -d --build
+# Подробно — docs/03_deploy.md.
+name: finritm
+
+services:
+  api:
+    build: ..
+    env_file: ../.env
+    environment:
+      DATABASE_PATH: /app/runtime/finritm.sqlite3
+    volumes:
+      - finritm-data:/app/runtime
+    restart: unless-stopped
+    # Портов наружу нет: API доступен только через caddy.
+
+  caddy:
+    image: caddy:2
+    depends_on: [api]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?Заполните SITE_ADDRESS в .env}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:?Заполните BASIC_AUTH_USER в .env}
+      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH:?Заполните BASIC_AUTH_HASH в .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../.deploy/frontend-dist:/srv/frontend:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+
+  # Локальная LLM. Включается флагом --profile llm. Наружу не открыта — только для api.
+  ollama:
+    image: ollama/ollama
+    profiles: [llm]
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  finritm-data:
+  caddy-data:
+  caddy-config:
+  ollama-models:
