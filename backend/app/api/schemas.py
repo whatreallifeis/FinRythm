@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
-from app.models import ImportRow, ScenarioId
+from app.models import ScenarioId
 
 
 class _In(BaseModel):
@@ -47,8 +47,21 @@ class ImpulseIn(_In):
     amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
 
 
+class ImportRowIn(_In):
+    """Строка импорта от фронтенда. Дата — строкой: её проверяет API построчно, чтобы одна
+    несуществующая дата (2026-02-30) не отклоняла весь файл (#52)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
+
+    date: str = Field(max_length=40)
+    amount: Decimal
+    category: str = "other"
+    merchant: str = ""
+    row: int | None = Field(default=None, ge=1)  # номер строки в файле (#36)
+
+
 class ImportIn(_In):
-    rows: list[ImportRow] = Field(max_length=5000)
+    rows: list[ImportRowIn] = Field(max_length=5000)
 
 
 class AskIn(_In):

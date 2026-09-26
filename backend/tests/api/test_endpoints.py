@@ -263,15 +263,35 @@ def test_import_stub_shape(client, auth, monkeypatch):
     assert body["imported"] == 0 and body["warnings"]
 
 
-def test_import_bad_date_is_422(client, auth):
-    rows = [{"date": "20.09.2026", "amount": -1, "category": "food", "merchant": "x"}]
+def test_import_bad_date_rejects_only_that_row(client, auth):
+    """#52: неверная или несуществующая дата не отклоняет весь файл."""
+    rows = [
+        {"date": "2026-09-20", "amount": -540, "category": "food", "merchant": "Супермаркет"},
+        {"date": "2026-02-30", "amount": -100, "category": "food", "merchant": "Кафе"},
+        {"date": "20.09.2026", "amount": -1, "category": "food", "merchant": "x"},
+    ]
     response = client.post("/api/transactions/import", json={"rows": rows}, headers=auth)
-    assert response.status_code == 422
-    assert response.json()["error"] == {
-        "code": "validation_error",
-        "message": "Дата в формате ГГГГ-ММ-ДД",
-        "field": "rows.0.date",
-    }
+    assert response.status_code == 200
+    body = response.json()
+    assert body["imported"] == 1
+    assert body["rejected"] == [
+        {"row": 2, "message": "Такой даты нет в календаре: 2026-02-30"},
+        {"row": 3, "message": "Дата в формате ГГГГ-ММ-ДД"},
+    ]
+    assert [row["merchant"] for row in client.get("/api/transactions", headers=auth).json()] == [
+        "Супермаркет"
+    ]
+
+
+def test_import_bad_date_uses_file_row_and_keeps_ingest_numbers(client, auth):
+    rows = [
+        {"date": "2026-09-31", "amount": -100, "category": "food", "merchant": "Кафе", "row": 2},
+        {"date": "2026-09-27", "amount": -540, "category": "food", "merchant": "Будущее", "row": 5},
+        {"date": "2026-09-20", "amount": -200, "category": "кафе", "merchant": "Кофейня", "row": 9},
+    ]
+    body = client.post("/api/transactions/import", json={"rows": rows}, headers=auth).json()
+    assert [item["row"] for item in body["rejected"]] == [2, 5]
+    assert body["warnings"][0].startswith("Строка 9:")
 
 
 def test_import_too_many_rows_is_422(client, auth):
