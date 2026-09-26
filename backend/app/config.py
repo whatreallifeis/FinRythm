@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = ""
     gigachat_credentials: str = ""
+    # ID каталога Yandex Cloud для Алисы AI. Библиотека openai берёт его из окружения процесса
+    # (OPENAI_PROJECT_ID); при старте API значение из .env кладётся туда же (app.main).
+    openai_project_id: str = ""
     llm_timeout: float = 40.0  # секунд на весь ответ модели; не успела — шаблонный ответ (ai.ask)
     kb_path: str = "data/knowledge_base/kb.json"
     ask_limit_per_minute: int = 20

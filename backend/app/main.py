@@ -12,6 +12,7 @@
 
 import json
 import logging
+import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -33,6 +34,9 @@ FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
 def _startup(app: FastAPI, settings: Settings) -> None:
+    if settings.openai_project_id and not os.environ.get("OPENAI_PROJECT_ID"):
+        # uvicorn читает .env только в Settings, а клиент openai (Алиса AI) — из окружения.
+        os.environ["OPENAI_PROJECT_ID"] = settings.openai_project_id
     try:
         app.state.llm = get_llm(settings)
     except ValueError as error:  # неизвестный LLM_PROVIDER: API работает, помощник отвечает 503
