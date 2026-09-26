@@ -7,9 +7,9 @@ from fastapi import APIRouter, Depends, Response
 
 from app.api import engine
 from app.api.deps import current_session, get_store, get_today
-from app.api.schemas import ImportIn
+from app.api.schemas import ImportIn, ImportRowIn
 from app.api.serialize import to_json
-from app.models import ImportResult, ImportRow
+from app.models import ImportResult, ImportRow, RejectedRow
 from app.storage import Session, Store
 
 router = APIRouter()
@@ -31,9 +31,40 @@ def import_transactions(
     store: Store = Depends(get_store),
     today: date = Depends(get_today),
 ) -> dict:
-    state, result = engine.apply_import(store.load(session.user_id), body.rows, today)
+    rows, bad_dates = _parse_dates(body.rows)
+    state, result = engine.apply_import(store.load(session.user_id), rows, today)
     store.save(session.user_id, state)
-    return to_json(_file_rows(result, body.rows))
+    result = _file_rows(result, rows)
+    rejected = sorted([*bad_dates, *result.rejected], key=lambda item: item.row)
+    return to_json(result.model_copy(update={"rejected": rejected}))
+
+
+ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _parse_dates(rows: list[ImportRowIn]) -> tuple[list[ImportRow], list[RejectedRow]]:
+    """Строки с неверной или несуществующей датой — в отказы со своим номером, остальные — в ingest.
+
+    У каждой переданной дальше строки есть row (номер файла или место в присланном списке),
+    поэтому _file_rows вернёт номера ingest к нумерации пользователя.
+    """
+    good: list[ImportRow] = []
+    bad: list[RejectedRow] = []
+    for index, item in enumerate(rows, start=1):
+        row = item.row or index
+        text = item.date.strip()
+        if not ISO_DATE.match(text):
+            bad.append(RejectedRow(row=row, message="Дата в формате ГГГГ-ММ-ДД"))
+            continue
+        try:
+            day = date.fromisoformat(text)
+        except ValueError:
+            bad.append(RejectedRow(row=row, message=f"Такой даты нет в календаре: {text}"))
+            continue
+        good.append(
+            ImportRow(date=day, amount=item.amount, category=item.category, merchant=item.merchant, row=row)
+        )
+    return good, bad
 
 
 LIST_ROW = re.compile(r"^Строка (\d+):")

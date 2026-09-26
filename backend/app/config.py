@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = ""
     gigachat_credentials: str = ""
+    llm_timeout: float = 40.0  # секунд на весь ответ модели; не успела — шаблонный ответ (ai.ask)
     kb_path: str = "data/knowledge_base/kb.json"
     ask_limit_per_minute: int = 20
 
