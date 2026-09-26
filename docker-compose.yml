@@ -1,0 +1,18 @@
+# Локально: cp .env.example .env && docker compose up --build → http://localhost:8000/docs
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_PATH: /app/runtime/finritm.sqlite3
+    volumes:
+      - finritm-data:/app/runtime # именованный том: права берутся из образа, SQLite пишется
+    restart: unless-stopped
+# Telegram-бот заморожен вместе с фронтендом (CLAUDE.md), сервиса bot пока нет.
+
+volumes:
+  finritm-data:

@@ -1,9 +1,13 @@
 """Тела запросов фронтенда (camelCase). Ответы собирает app.api.serialize."""
 
+from datetime import date
 from decimal import Decimal
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
+
+from app.models import ImportRow, ScenarioId
 
 
 class _In(BaseModel):
@@ -24,3 +28,41 @@ class ProfileIn(_In):
 
 class TelegramIn(_In):
     init_data: str = Field(min_length=1)
+
+
+class GoalIn(_In):
+    title: str = Field(min_length=1, max_length=100)
+    target_amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    saved_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=12, decimal_places=2)
+    deadline: date | None = None
+
+    @model_validator(mode="after")
+    def _saved_not_above_target(self) -> "GoalIn":
+        if self.saved_amount > self.target_amount:
+            raise ValueError("Накоплено не может быть больше суммы цели")
+        return self
+
+
+class ImpulseIn(_In):
+    amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+
+
+class ImportIn(_In):
+    rows: list[ImportRow] = Field(max_length=5000)
+
+
+class AskIn(_In):
+    question: str = Field(min_length=1, max_length=1000)
+    scenario_id: ScenarioId
+
+
+class HistoryEntryIn(_In):
+    """Сохранённый диалог. Сервер хранит его как прислал фронтенд, проверяя только каркас."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="allow")
+
+    id: str = Field(min_length=1, max_length=100)
+    scenario_id: ScenarioId
+    title: str = Field(max_length=300)
+    created_at: str = Field(min_length=1, max_length=40)
+    messages: list[dict[str, Any]] = Field(max_length=200)
