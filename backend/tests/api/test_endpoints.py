@@ -109,14 +109,6 @@ def test_analysis_requires_login(client, method, path, body, check):
     assert response.status_code == 401
 
 
-def test_analysis_uses_stub_when_core_has_no_function(client, auth, monkeypatch):
-    monkeypatch.delattr(core, "build_runway", raising=False)
-    body = client.get("/api/analysis/runway", headers=auth).json()
-    shapes.check_explained(body, shapes.runway)
-    assert body["dataQuality"]["sufficient"] is False
-    assert "не подключён" in body["dataQuality"]["missing"][0]
-
-
 def test_analysis_calls_core_with_state_and_today(client, auth, monkeypatch):
     seen = {}
 
@@ -160,11 +152,11 @@ def test_analysis_calls_core_with_state_and_today(client, auth, monkeypatch):
 def test_impulse_passes_amount_as_decimal(client, auth, monkeypatch):
     seen = {}
 
+    real = core.check_impulse
+
     def fake(state, amount, as_of):
         seen["amount"] = amount
-        from app.api import stubs
-
-        return stubs.check_impulse(state, amount, as_of)
+        return real(state, amount, as_of)
 
     monkeypatch.setattr(core, "check_impulse", fake, raising=False)
     client.post("/api/analysis/impulse", json={"amount": 14900.5}, headers=auth)
@@ -253,14 +245,6 @@ def test_import_calls_ingest_and_saves(client, auth, monkeypatch):
     }
     saved = client.get("/api/transactions", headers=auth).json()
     assert [row["amount"] for row in saved] == [8000.0, -349.9]
-
-
-def test_import_stub_shape(client, auth, monkeypatch):
-    monkeypatch.delattr(ingest, "apply_import", raising=False)
-    rows = [{"date": "2026-09-20", "amount": -1, "category": "food", "merchant": "x"}]
-    body = client.post("/api/transactions/import", json={"rows": rows}, headers=auth).json()
-    assert set(body) == {"imported", "rejected", "warnings"}
-    assert body["imported"] == 0 and body["warnings"]
 
 
 def test_import_bad_date_rejects_only_that_row(client, auth):

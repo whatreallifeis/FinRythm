@@ -16,7 +16,6 @@
 - Стенд на сервере Рег.облака по `docs/03_deploy.md` — разворачивает команда.
 
 ## Заблокировано / жду от других
-- Саша: `build_overview`, `build_forecast`, `build_runway`, `check_impulse`, `build_goal_plan` в `app.core`, `apply_import` в `app.ingest`. Соня: `ask` (и `LLMUnavailable`, `load_kb`) в `app.ai`. До этого эндпоинты отвечают заглушками с `sufficient=false`.
 
 ## Что важно знать остальным
 <!-- изменения поведения, новые функции, которые можно использовать -->
