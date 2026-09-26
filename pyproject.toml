@@ -13,6 +13,12 @@ addopts = "-m 'not e2e'"
 [tool.ruff]
 line-length = 110
 target-version = "py312"
+# ruff format умеет править код в .md — документацию не трогаем (issue #7)
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.flake8-bugbear]
+# Depends/Query/... в аргументах — штатный способ FastAPI
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Header", "fastapi.Body", "fastapi.Path"]
