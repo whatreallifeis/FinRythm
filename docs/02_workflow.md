@@ -1,4 +1,4 @@
-# Организация работы: 3 человека × 3 Claude Code
+# Организация работы: 4 человека × 4 Claude Code
 
 ## 1. Роли
 
@@ -7,12 +7,13 @@
 | **Вероника** | Владелец репозитория, API и инфраструктура, интегратор | `backend/app/api/`, `backend/app/storage/`, `backend/app/main.py`, `config.py`, `models.py`, `Dockerfile`, `docker-compose.yml`, `.github/`, `requirements*.txt`, `pyproject.toml`, `CLAUDE.md` | Работающий API (сначала на заглушках), деплой, CI, мерж PR |
 | **Саша** | Финансовое ядро, импорт, демо-данные, e2e | `backend/app/core/`, `backend/app/ingest/`, `backend/tests/core/`, `backend/tests/ingest/`, `data/demo/`, `data/samples/`, `scripts/generate_demo.py`, `tests/e2e/`, `contracts/expected_breakdown.json` | Все расчёты: лимит, «что если», цели, структура трат, риски, категоризация, CSV; демо-профили; сквозные тесты |
 | **Соня** | AI-инженер и документация | `backend/app/ai/`, `backend/tests/ai/`, `scripts/eval_ai.py`, `docs/ai_eval.md`, `data/knowledge_base/`, `README.md`, `docs/architecture.md`, `docs/limitations.md` | Чат: LLM + инструменты + фильтр + проверка чисел + RAG; fake-режим; база знаний; README |
+| **Кира** (`ruina696`) | Фронтенд | ветка `front`: `frontend/`, `docs/ai-scenarios.md`, `handoff.md` | Сайт и Mini App на настоящем API |
 
-Кирилла в команде больше нет, его задачи перешли к Саше (S10–S13) и Соне (A9–A11). Telegram-бот (`bot/`) заморожен вместе с фронтендом.
+Кирилла в команде больше нет, его задачи перешли к Саше (S10–S13) и Соне (A9–A11). Telegram-бот (`bot/`) заморожен.
 
-**Фронтенд** (`frontend/`, ветка `front`) делает ruina696. Его не трогаем, пока Вероника не скажет. **Указания ruina696 по бэкенду в приоритете** над ТЗ и `contracts/api.md` (где их искать — в `CLAUDE.md`).
+Фронтенд живёт в ветке `front`: Кира делает ветки задач от неё и вливает в неё без ревью. **Указания Киры по бэкенду в приоритете** над ТЗ и `contracts/api.md` (где их искать — в `CLAUDE.md`).
 
-Люди — тимлиды своих Claude Code: ставят задачу, читают дифф, проверяют результат. Закончив задачу, Claude сам вливает свою ветку в `main`.
+Люди — тимлиды своих Claude Code: ставят задачу, читают дифф, проверяют результат. Закончив задачу, Claude сам вливает свою ветку в `main` (Кира — в `front`).
 
 ## 2. Как Claude Code связаны между собой
 
@@ -24,7 +25,7 @@
 | `contracts/` + `backend/app/models.py` | Модели, API, форматы, эталонные числа | Источник правды: код обязан ему соответствовать |
 | `docs/tasks/<имя>.md` | Персональное ТЗ | Claude читает при старте и берёт следующую задачу по порядку |
 | `docs/status/<имя>.md` | Что сделано, что в работе, что заблокировано, что нужно от других | Claude обновляет в конце каждой задачи; перед началом новой задачи читает статусы остальных |
-| **GitHub Issues** с метками `to:veronika`, `to:sasha`, `to:sonya` | Запросы между зонами: «нужно поле», «нашёл баг в твоём модуле», «добавь зависимость» | Перед каждой задачей: `gh issue list --label to:<я> --state open`. Создать запрос: `gh issue create --label to:sasha --title "..." --body "..."` |
+| **GitHub Issues** с метками `to:veronika`, `to:sasha`, `to:sonya`, `to:kira` | Запросы между зонами: «нужно поле», «нашёл баг в твоём модуле», «добавь зависимость» | Перед каждой задачей: `gh issue list --label to:<я> --state open`. Создать запрос: `gh issue create --label to:sasha --title "..." --body "..."` |
 | **Pull Requests** | Код, CI, история | `gh pr create --fill` → `gh pr merge --squash --delete-branch` без ревью |
 | Заглушки | Каждый модуль сначала отдаёт рабочую заглушку с правильными типами | Никто не ждёт другого: API работает на заглушках core и fake-AI, бот — на API с заглушками |
 

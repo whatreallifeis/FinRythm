@@ -159,6 +159,7 @@ Claude Code сам прочитает `CLAUDE.md`. Первым сообщени
 | Вероника | `docs/tasks/veronika.md` |
 | Саша | `docs/tasks/sasha.md` |
 | Соня | `docs/tasks/sonya.md` |
+| Кира | `docs/tasks/kira.md` |
 
 Полезное в Claude Code:
 - Разрешения на `git`, `gh`, `pytest`, `ruff`, `python` уже выданы в `.claude/settings.json`; на остальное Claude спросит — читайте, что он хочет выполнить.
