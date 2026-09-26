@@ -24,7 +24,8 @@ def to_json(value: Any) -> Any:
     if isinstance(value, bool) or value is None or isinstance(value, int | float | str):
         return value
     if isinstance(value, Decimal):
-        return money(value)
+        # Не округляем: core уже отдаёт деньги с точностью до копейки, а доли — до 4 знаков (issue #24).
+        return float(value)
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, date):
@@ -87,7 +88,7 @@ def public_explained(payload: Explained) -> dict:
         "result": to_json(payload.result),
         "assumptions": list(payload.assumptions),
         "calculation": [
-            {"label": step.label, "formula": step.formula, "value": to_json(step.value)}
+            {"label": step.label, "formula": step.formula, "value": float(step.value)}
             for step in payload.calculation
         ],
         "sources": [{"title": source.title, "url": source.url} for source in payload.sources],

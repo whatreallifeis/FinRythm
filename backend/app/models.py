@@ -385,6 +385,9 @@ class ImportRow(_Model):
     amount: Decimal
     category: str = "other"  # неизвестная категория → "other" с предупреждением (решает ingest)
     merchant: str = ""
+    # Номер строки в исходном файле (заголовок — строка 1). Необязателен: если фронтенд его прислал,
+    # API подставляет его в rejected[].row и в «Строка N: …» предупреждений вместо номера в списке.
+    row: int | None = Field(default=None, ge=1)
 
 
 class RejectedRow(_Model):
