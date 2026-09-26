@@ -1,14 +1,16 @@
 # Статус: sonya
 
-Обновляется в конце каждой задачи. Последнее обновление: 27.09.2026, A2
+Обновляется в конце каждой задачи. Последнее обновление: 27.09.2026, AF1
 
 ## Сделано
 - **A1. LLMClient и FakeLLM** (`backend/app/ai/llm/`): интерфейс `LLMClient`, `ToolCall`, `LLMReply`; `FakeLLM` без сети; `get_llm(settings)` (пока только `fake`). 48 тестов в `backend/tests/ai/`.
 - **A2. Инструменты** (`backend/app/ai/tools.py`): схемы из `contracts/tools.schema.json` (`tool_schemas()`, `openai_tools()` — формат function calling), `dispatch(name, args, profile, *, kb=None) -> dict` поверх `app.core`. Ошибки аргументов → `{"error": "..."}` по-русски, без исключений. Проверено вместе с FakeLLM: вопрос → инструмент → ответ с числами из core (404 → 211 ₽).
 
+- **AF1. Точка входа `ask()` для `POST /api/ask` (заглушка).** `from app.ai import ask`; `await ask(question, scenario_id, state, as_of, *, llm, kb) -> Explained`. Пока всегда `sufficient=False`, сценарии — в AF2.
+
 ## В работе
 - A0 (доступ к LLM): ключа пока нет, работаем на `LLM_PROVIDER=fake`.
-- Далее A3 — оркестратор и системный промпт.
+- AF2 — сценарии `impulse`, `budget`, `expenses`, `glossary`, `free` без LLM (режим `fake`).
 
 ## Заблокировано / жду от других
 - Реальные числа `plan_goal`, `spending_breakdown`, `detect_risks`, `build_snapshot` появятся с задачами Саши S3–S8 (сейчас заглушки); `calculate_runway`/`simulate` уже настоящие (S2).
@@ -22,3 +24,4 @@
   - `plan_goal` без суммы и срока вызывается с пустыми аргументами (FakeLLM не видит профиль) — первую цель пользователя подставит `dispatch` в A2;
   - год в «к 31 марта» FakeLLM берёт из даты ГГГГ-ММ-ДД в системном промпте (промпт в A3 будет её содержать).
 - `dispatch`: `plan_goal` без аргументов → первая цель пользователя; `calculate_runway(count_expected_income=true)` → `k=0.5`; `spending_breakdown` без операций → `{"error": ...}` с подсказкой загрузить CSV; `search_knowledge` без базы → `{"query", "results": []}`.
+- **Вероника:** `ask()` — async, возвращает `app.models.Explained` с `result={"text": ...}` (snake_case, Decimal; в camelCase переводит API). Неизвестный `scenario_id` → `ValueError`. `llm` и `kb` — те же объекты, что создаются при старте (`get_llm(settings)`, база знаний появится в AF4); можно передавать `None`.
