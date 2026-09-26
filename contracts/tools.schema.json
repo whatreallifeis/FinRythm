@@ -1,0 +1,72 @@
+{
+  "_comment": "Инструменты, которые LLM может вызывать. Формат — JSON Schema в стиле function calling (OpenAI-совместимый). Реализация: backend/app/ai/tools.py (Соня) поверх backend/app/core (Саша). Профиль пользователя передаётся инструменту сервером, LLM его НЕ передаёт.",
+  "tools": [
+    {
+      "name": "get_snapshot",
+      "description": "Краткая сводка данных пользователя: баланс, ближайшие поступления (подтверждённые и ожидаемые), обязательные платежи, цели и каких данных не хватает. Вызывай первым, если не понимаешь ситуацию пользователя.",
+      "parameters": {"type": "object", "properties": {}, "additionalProperties": false}
+    },
+    {
+      "name": "calculate_runway",
+      "description": "Считает дневной лимит безопасных трат до следующего подтверждённого поступления: горизонт, обязательные платежи, резерв, взнос в цели, доступную сумму, лимит в день или дефицит. Возвращает формулу с числами и допущения.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "count_expected_income": {"type": "boolean", "description": "Учитывать ожидаемые (неподтверждённые) поступления с коэффициентом 0.5. По умолчанию false."}
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "simulate",
+      "description": "Сценарий «что если»: как изменится дневной лимит после покупки на сумму purchase и/или задержки следующего поступления на delay_days дней. Возвращает лимит до и после.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "purchase": {"type": "number", "minimum": 0, "description": "Сумма покупки в рублях"},
+          "delay_days": {"type": "integer", "minimum": 0, "maximum": 60, "description": "На сколько дней задержится поступление"}
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plan_goal",
+      "description": "План накопления: сколько откладывать в день, чтобы собрать target_amount к deadline, когда цель будет достигнута при текущем темпе. Если goal_id указан — используется существующая цель пользователя.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "goal_id": {"type": "string"},
+          "title": {"type": "string"},
+          "target_amount": {"type": "number", "exclusiveMinimum": 0},
+          "deadline": {"type": "string", "format": "date", "description": "ГГГГ-ММ-ДД"},
+          "saved_amount": {"type": "number", "minimum": 0}
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "spending_breakdown",
+      "description": "Структура расходов за последние period_days дней: суммы и доли по категориям, регулярные платежи, крупные траты.",
+      "parameters": {
+        "type": "object",
+        "properties": {"period_days": {"type": "integer", "minimum": 7, "maximum": 180, "default": 30}},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "detect_risks",
+      "description": "Финансовые риски: подписки, аномально крупные траты, дефицит до поступления, прогноз даты, когда закончатся деньги при текущем темпе трат.",
+      "parameters": {"type": "object", "properties": {}, "additionalProperties": false}
+    },
+    {
+      "name": "search_knowledge",
+      "description": "Поиск объяснения финансового термина или понятия в проверенной базе знаний. Возвращает 1–3 фрагмента с источником (URL). Используй для любых объяснений терминов; не объясняй термины из своей памяти.",
+      "parameters": {
+        "type": "object",
+        "properties": {"query": {"type": "string", "minLength": 2, "maxLength": 200}},
+        "required": ["query"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "as_of": "2026-09-26",
+  "balance": null,
+  "incomes": [],
+  "payments": [],
+  "goals": [],
+  "transactions": [],
+  "settings": {"reserve_pct": "10", "expected_income_k": "0", "default_horizon_days": 30},
+  "origin": null
+}

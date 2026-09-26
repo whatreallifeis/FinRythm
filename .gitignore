@@ -1,0 +1,26 @@
+# секреты
+.env
+*.env
+!.env.example
+# python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+# данные рантайма
+*.sqlite3
+*.db
+# IDE / ОС
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+# фронтенд (позже)
+node_modules/
+frontend/dist/
+# локальные заметки Claude
+.claude/settings.local.json

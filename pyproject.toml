@@ -1,0 +1,18 @@
+[project]
+name = "finritm"
+version = "0.1.0"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+pythonpath = ["backend", "."]
+testpaths = ["backend/tests", "bot/tests", "tests"]
+asyncio_mode = "auto"
+markers = ["e2e: сквозные тесты по HTTP (нужен запущенный API и API_BASE_URL)"]
+addopts = "-m 'not e2e'"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

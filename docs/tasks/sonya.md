@@ -1,0 +1,148 @@
+# ТЗ: Соня — AI-инженер
+
+**Роль:** всё, что связано с LLM: провайдеры, вызов инструментов, промпты, фильтр рискованных запросов, проверка чисел, RAG, оценка качества.
+**Зона:** `backend/app/ai/`, `backend/tests/ai/`, `scripts/eval_ai.py`, `docs/ai_eval.md`, `docs/status/sonya.md`.
+**Ревьюер твоих PR:** Саша. **Ты ревьюишь:** PR Саши.
+**Ты используешь:** функции core Саши (через `from app.core import ...`), базу знаний Кирилла (`data/knowledge_base/kb.json`).
+**Тобой пользуется:** Вероника — вызывает `answer()` из эндпоинта `/api/chat`.
+
+## Стартовый промпт для Claude Code
+
+```
+Я Соня. Ты работаешь на меня в проекте ФинРитм.
+Прочитай CLAUDE.md, docs/01_project_spec.md (разделы 5.3 и 7), docs/tasks/sonya.md,
+backend/app/models.py (ChatResponse и связанные), contracts/tools.schema.json, contracts/data_formats.md (§3).
+Проверь входящие issues: gh issue list --label to:sonya --state open.
+Начни с задачи A0 (вместе со мной), затем A1. После каждой задачи: тесты, ruff, обновить docs/status/sonya.md, PR на ревью Саше.
+Меняй только файлы моей зоны. LLM никогда не считает деньги — только инструменты.
+```
+
+## Публичный интерфейс
+
+```python
+# backend/app/ai/__init__.py
+from app.models import Profile, ChatResponse
+
+async def answer(message: str, profile: Profile, *, llm: "LLMClient", kb: "KnowledgeBase") -> ChatResponse: ...
+async def answer_stream(message, profile, *, llm, kb):  # (S) async-генератор событий {"type": "step"|"answer", ...}
+def get_llm(settings) -> "LLMClient": ...        # по LLM_PROVIDER
+def load_kb(path: str) -> "KnowledgeBase": ...   # если файла нет — пустая база, не падать
+```
+
+Вероника создаёт `llm` и `kb` один раз при старте приложения и передаёт в `answer()`.
+
+## Структура модулей
+
+```
+backend/app/ai/
+├── __init__.py          экспорт answer, answer_stream, get_llm, load_kb
+├── llm/
+│   ├── base.py          LLMClient (Protocol), ToolCall, LLMReply
+│   ├── fake.py          FakeLLM — правила, без сети
+│   ├── openai_compat.py OpenAI-совместимый API (OpenAI, YandexGPT-совместимый эндпоинт, другие)
+│   ├── gigachat.py      (опционально)
+│   └── factory.py       get_llm
+├── tools.py             схемы из contracts/tools.schema.json + dispatch(name, args, profile)
+├── prompts.py           системный промпт и шаблоны
+├── guardrails.py        classify_risky(message) -> str | None, refusal(intent) -> ChatResponse
+├── number_check.py      check_numbers(text, allowed) -> (ok, bad_numbers)
+├── rag.py               KnowledgeBase, BM25-поиск
+└── orchestrator.py      answer(), answer_stream()
+```
+
+```python
+# llm/base.py
+@dataclass
+class ToolCall: id: str; name: str; arguments: dict
+@dataclass
+class LLMReply: content: str | None; tool_calls: list[ToolCall]
+class LLMClient(Protocol):
+    name: str
+    async def complete(self, messages: list[dict], tools: list[dict] | None = None) -> LLMReply: ...
+```
+
+---
+
+## A0. Доступ к LLM · Ч0–0:45 (вместе с человеком)
+
+Подписка Claude **не даёт** API-ключа. Нужен отдельный ключ провайдера с function calling. Варианты (решить за 30 минут):
+1. **GigaChat API** (developers.sber.ru) — бесплатный пакет для физлиц; нужен сертификат НУЦ Минцифры или отключение проверки сертификата только в dev.
+2. **YandexGPT / Yandex AI Studio** — каталог Yandex Cloud + API-ключ сервисного аккаунта; есть OpenAI-совместимый эндпоинт.
+3. Любой OpenAI-совместимый провайдер, доступный команде.
+
+Проверь 20-строчным скриптом (не коммитить с ключом!), что модель вызывает функцию `calculate_runway`. Запиши в `docs/status/sonya.md` выбранный провайдер и **названия** переменных (`LLM_BASE_URL`, `LLM_MODEL`); сами ключи передай Веронике лично, не через репозиторий.
+**Если к Ч3 ключа нет — всё делаем на `fake`, это нормально.**
+
+## A1. LLMClient и FakeLLM · Ч0:45–2 · СРОЧНО, НУЖНО ВСЕМ
+
+`FakeLLM` имитирует модель с вызовом инструментов, чтобы весь проект работал без ключа:
+- 1-й вызов (нет результатов инструментов в `messages`) → выбрать инструмент по правилам (регистр не важен):
+
+| Если в вопросе | Инструмент и аргументы |
+|---|---|
+| «купить», «потратить», «хватит ли на», «покупк» + число | `simulate(purchase=<число>)` |
+| «задерж», «не придёт», «позже» + число дней | `simulate(delay_days=<число>)`, по умолчанию 7 |
+| «накоп», «коплю», «цель», «отложить» | `plan_goal(goal_id=<первая цель>)` или с числом и датой из вопроса |
+| «куда уходят», «траты», «расход», «категор» | `spending_breakdown()` |
+| «риск», «подписк», «опасн», «закончатся» | `detect_risks()` |
+| «что такое», «объясни», «как работает», «что значит» | `search_knowledge(query=<вопрос>)` |
+| иначе | `calculate_runway()` |
+
+  Числа: «3000», «3 000», «3к»/«3 тыс» → 3000.
+- 2-й вызов (есть результат инструмента) → собрать ответ по шаблону **только из чисел результата**. Пример для `simulate`: «Если потратить 3 000 ₽, дневной лимит снизится с 404 ₽ до 211 ₽ на 14 дней».
+- Тесты: 15 вопросов → ожидаемый инструмент и аргументы.
+
+## A2. Инструменты · Ч2–3
+
+- `tools.py`: загрузка `contracts/tools.schema.json` → формат для провайдера; `dispatch(name, args, profile) -> dict`:
+  - `get_snapshot` → `build_snapshot`; `calculate_runway(count_expected_income)` → `k=0.5 if true else None`; `simulate`; `plan_goal`; `spending_breakdown`; `detect_risks`; `search_knowledge` → `kb.search`.
+  - Результат — JSON-совместимый dict (`model_dump(mode="json")`), деньги строками.
+  - Ошибки аргументов → `{"error": "понятный текст"}`, а не исключение: LLM должна увидеть ошибку и исправиться.
+- Тесты: каждый инструмент на P1; неверные аргументы; неизвестный инструмент.
+
+## A3. Оркестратор и промпт · Ч3–4:30
+
+- `prompts.py`: системный промпт по `docs/01_project_spec.md` §7.2. Добавь в него текущую дату (`as_of`) и требование вернуть финальный ответ **строго JSON** `{"result": ..., "basis": ..., "assumptions": [...], "next_steps": [...]}`.
+- `orchestrator.answer()`: фильтр (A4) → цикл до 5 итераций → парсинг JSON (если не JSON — весь текст в `result`) → проверка чисел (A5) → источники из вызовов `search_knowledge` → `ChatResponse`. `answer` — склейка блоков в читаемый текст для бота.
+- Таймаут на весь ответ 30 с; ошибка провайдера → исключение `LLMUnavailable` (Вероника превращает в 503).
+- Тесты с `FakeLLM` и с моком LLM, который возвращает заданную последовательность ответов.
+
+## A4. Фильтр рискованных запросов · Ч4:30–5:30
+
+- `guardrails.classify_risky(message) -> str | None` — правила (регулярные выражения) для категорий из §7.3 спецификации: `investment`, `crypto`, `credit`, `gambling`, `money_transfer`, `decide_for_me`, `personal_data` (16 цифр, «CVV», «код из смс»), `out_of_scope`.
+- Осторожно с ложными срабатываниями: «хватит ли на кредитку до стипендии?» — вопрос про бюджет, а не просьба выбрать кредит. Формулируй правила по намерению («посоветуй», «куда вложить», «какой кредит взять», «стоит ли брать займ»).
+- `refusal(intent)` → `ChatResponse(refused=True, refusal_reason=intent, answer=...)`. Для `investment`, `crypto`, `credit`, `gambling` добавь 1 источник из базы знаний (поиск по теме риска). Для `credit` предложи: «Могу посчитать, сколько не хватает до стипендии».
+- Тесты: минимум 3 примера на каждую категорию + 15 обычных вопросов, которые **не** должны блокироваться.
+
+## A5. Проверка чисел · Ч5:30–6:15
+
+- `number_check.check_numbers(text, allowed) -> (ok, bad)`:
+  - извлечь числа из текста: `\d[\d\s ]*(?:[.,]\d+)?` → нормализовать в `Decimal`;
+  - `allowed` = все числа из результатов вызванных инструментов (рекурсивно по dict/list; даты → день, месяц, год; строки-деньги → Decimal) + числа из вопроса пользователя + `{0, 1, 100}`;
+  - число разрешено, если равно разрешённому или равно его округлению до рубля.
+- В `answer()`: при провале — одна повторная генерация с сообщением «В ответе числа, которых нет в результатах инструментов: …; используй только их». Второй провал → шаблонный ответ из последнего результата инструмента, `number_check_passed=False` (для логов).
+- Тесты: «лимит 404 ₽» при результате 404 → ok; «лимит 410 ₽» → bad; «9 800» → ok; даты «10 октября» → ok.
+
+## A6. RAG · Ч6:15–7
+
+- `rag.py`: `KnowledgeBase` читает `data/knowledge_base/kb.json` (формат — `contracts/data_formats.md` §3), BM25 (`rank_bm25`) по `title + keywords + text`, простая токенизация (нижний регистр, `ё→е`, отбросить слова < 3 букв, обрезать окончания до 6 символов — грубый стемминг).
+- `search(query, k=3, min_score=...)` → фрагменты с `url` и `checked_at`. Ниже порога → пусто → LLM отвечает «в моей базе нет проверенного ответа».
+- Пока Кирилл не влил базу — тесты на 5 фрагментах внутри теста.
+- Тест: «что такое подушка безопасности» → первым идёт фрагмент о подушке.
+
+## A7. Оценка качества · Ч7–9 (нужен реальный LLM)
+
+- `scripts/eval_ai.py`: 30 вопросов (20 обычных по сценариям СЦ-1…СЦ-9 на профилях P1–P3 + 10 рискованных) → для каждого: вызванные инструменты, прошла ли проверка чисел, есть ли источник там, где нужен, корректный ли отказ. Итоговый отчёт в `docs/ai_eval.md` (таблица + процент успеха).
+- Доводи промпт, пока: верные числа ≥ 95%, корректные отказы 10/10, ложные отказы 0.
+- Этот отчёт — аргумент на защите «как вы боретесь с галлюцинациями».
+
+## A8. После фриза и S-задачи · Ч9–11
+
+- `answer_stream()` (S): события `{"type":"step","tool":"calculate_runway","label":"Считаю дневной лимит"}` и финальное `{"type":"answer","data":ChatResponse}`. Вероника подключит к `/api/chat/stream`.
+- Исправления по issues `to:sonya`.
+
+## Критерии приёмки зоны
+- [ ] С `LLM_PROVIDER=fake` все сценарии СЦ-2…СЦ-10 дают ожидаемые инструменты и числа.
+- [ ] Ни одно число в ответе не берётся из «головы» модели (проверка чисел включена всегда).
+- [ ] Рискованные запросы блокируются до вызова LLM, ложных блокировок на 15 обычных вопросах нет.
+- [ ] `docs/ai_eval.md` с результатами на реальном LLM (если ключ получен).

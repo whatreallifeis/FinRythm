@@ -1,0 +1,130 @@
+{
+  "_comment": "Сгенерировано contracts/reference_runway.py. Ручная правка запрещена.",
+  "runway": {
+    "p1": {
+      "status": "ok",
+      "horizon_days": 14,
+      "horizon_is_assumed": false,
+      "next_income_date": "2026-10-10",
+      "mandatory_total": "1949.00",
+      "free": "7851.00",
+      "reserve": "785.10",
+      "goal_contribution": "1400.00",
+      "expected_income_counted": "0.00",
+      "available": "5665.90",
+      "daily_limit": "404",
+      "deficit": "0.00"
+    },
+    "p1_purchase_3000": {
+      "status": "ok",
+      "horizon_days": 14,
+      "horizon_is_assumed": false,
+      "next_income_date": "2026-10-10",
+      "mandatory_total": "1949.00",
+      "free": "4851.00",
+      "reserve": "485.10",
+      "goal_contribution": "1400.00",
+      "expected_income_counted": "0.00",
+      "available": "2965.90",
+      "daily_limit": "211",
+      "deficit": "0.00"
+    },
+    "p1_delay_7": {
+      "status": "ok",
+      "horizon_days": 21,
+      "horizon_is_assumed": false,
+      "next_income_date": "2026-10-17",
+      "mandatory_total": "1949.00",
+      "free": "7851.00",
+      "reserve": "785.10",
+      "goal_contribution": "2100.00",
+      "expected_income_counted": "0.00",
+      "available": "4965.90",
+      "daily_limit": "236",
+      "deficit": "0.00"
+    },
+    "p1_k_0_5": {
+      "status": "ok",
+      "horizon_days": 14,
+      "horizon_is_assumed": false,
+      "next_income_date": "2026-10-10",
+      "mandatory_total": "1949.00",
+      "free": "7851.00",
+      "reserve": "785.10",
+      "goal_contribution": "1400.00",
+      "expected_income_counted": "2000.00",
+      "available": "7665.90",
+      "daily_limit": "547",
+      "deficit": "0.00"
+    },
+    "p2": {
+      "status": "deficit",
+      "horizon_days": 10,
+      "horizon_is_assumed": false,
+      "next_income_date": "2026-10-06",
+      "mandatory_total": "3200.00",
+      "free": "-700.00",
+      "reserve": "0.00",
+      "goal_contribution": "0.00",
+      "expected_income_counted": "0.00",
+      "available": "-700.00",
+      "daily_limit": "0",
+      "deficit": "700.00"
+    },
+    "p3": {
+      "status": "ok",
+      "horizon_days": 30,
+      "horizon_is_assumed": true,
+      "next_income_date": "2026-10-26",
+      "mandatory_total": "9098.00",
+      "free": "8902.00",
+      "reserve": "890.20",
+      "goal_contribution": "0.00",
+      "expected_income_counted": "0.00",
+      "available": "8011.80",
+      "daily_limit": "267",
+      "deficit": "0.00"
+    },
+    "p3_k_0_5": {
+      "status": "ok",
+      "horizon_days": 30,
+      "horizon_is_assumed": true,
+      "next_income_date": "2026-10-26",
+      "mandatory_total": "9098.00",
+      "free": "8902.00",
+      "reserve": "890.20",
+      "goal_contribution": "0.00",
+      "expected_income_counted": "7500.00",
+      "available": "15511.80",
+      "daily_limit": "517",
+      "deficit": "0.00"
+    },
+    "edge_income_today": {
+      "status": "ok",
+      "horizon_days": 1,
+      "horizon_is_assumed": false,
+      "next_income_date": "2026-09-26",
+      "mandatory_total": "0.00",
+      "free": "5000.00",
+      "reserve": "500.00",
+      "goal_contribution": "0.00",
+      "expected_income_counted": "0.00",
+      "available": "4500.00",
+      "daily_limit": "4500",
+      "deficit": "0.00"
+    },
+    "edge_empty": {
+      "status": "insufficient_data",
+      "daily_limit": "0"
+    }
+  },
+  "goal_plan": {
+    "p1_laptop": {
+      "days_left": 186,
+      "required_daily": "323",
+      "amount_by_deadline": "18600.00",
+      "projected_date": "2028-05-18",
+      "on_track": false
+    }
+  }
+}
