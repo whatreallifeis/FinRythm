@@ -142,13 +142,22 @@ def test_import_rows(client, new_user, server_today):
     assert again["warnings"]
 
 
-def test_import_bad_date_is_validation_error(client, new_user):
-    rows = [{"date": "26.09.2026", "amount": -100, "category": "food", "merchant": "Кафе"}]
-    check_error(
-        client.post("/api/transactions/import", headers=new_user, json={"rows": rows}),
-        422,
-        "validation_error",
-    )
+def test_import_bad_date_rejects_only_its_row(client, new_user, server_today):
+    """Неверная или несуществующая дата отклоняет свою строку, остальные сохраняются (#52)."""
+    rows = [
+        {"date": server_today, "amount": -540, "category": "food", "merchant": "Супермаркет", "row": 2},
+        {"date": "26.09.2026", "amount": -100, "category": "food", "merchant": "Кафе", "row": 3},
+        {"date": "2026-02-30", "amount": -100, "category": "food", "merchant": "Столовая", "row": 4},
+    ]
+    response = client.post("/api/transactions/import", headers=new_user, json={"rows": rows})
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["imported"] == 1
+    assert [r["row"] for r in body["rejected"]] == [3, 4], "номера строк файла из поля row (#36)"
+    assert all(r["message"] for r in body["rejected"])
+    merchants = [op["merchant"] for op in client.get("/api/transactions", headers=new_user).json()]
+    assert merchants == ["Супермаркет"]
 
 
 def test_import_keeps_demo_calendar(client, demo_user, server_today):
