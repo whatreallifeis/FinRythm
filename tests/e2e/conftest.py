@@ -1,6 +1,7 @@
 """Сквозные тесты: ходят в API только по HTTP и не импортируют код бэкенда.
 
 Запуск: API_BASE_URL=http://localhost:8000 pytest -m e2e
+Таймаут запроса — E2E_TIMEOUT секунд (по умолчанию 30; с моделью на CPU ответ помощника идёт до минуты).
 Сервер — с LLM_PROVIDER=fake. Точные числа демо-сценария проверяются, только если сервер считает
 на дату демо (APP_TODAY=2026-09-26); на другой дате проверяются формы ответов и правила.
 """
@@ -23,7 +24,8 @@ def base_url() -> str:
 
 @pytest.fixture(scope="session")
 def client(base_url: str):
-    with httpx.Client(base_url=base_url, timeout=30) as http:
+    timeout = float(os.environ.get("E2E_TIMEOUT", "30"))
+    with httpx.Client(base_url=base_url, timeout=timeout) as http:
         yield http
 
 
