@@ -80,7 +80,8 @@ async def test_model_text_used_when_numbers_ok():
 
 async def test_system_prompt_is_the_same_for_all_scenarios():
     prompts_seen = []
-    for question, scenario in [("Составь бюджет", "budget"), ("Куда уходят деньги?", "expenses")]:
+    # «Анализ трат» и «Свой вопрос» отвечает аналитик по сводке (test_analyst.py), здесь — шаблонные.
+    for question, scenario in [("Составь бюджет", "budget"), ("Хочу купить телефон за 14 900 ₽", "impulse")]:
         llm = ScriptedLLM("Ответ без чисел.")
         await run(question, scenario, llm)
         prompts_seen.append(llm.calls[0][0]["content"])
@@ -137,7 +138,6 @@ async def test_no_retry_without_time_left():
     [
         ("Взять микрозайм до стипендии?", "free"),  # отказ
         ("Можно сегодня что-нибудь купить?", "impulse"),  # нет суммы
-        ("Привет, как дела?", "free"),  # просим уточнить
     ],
 )
 async def test_model_not_called_without_answer(question, scenario):
@@ -153,11 +153,14 @@ async def test_fake_provider_keeps_template():
     assert res.result["text"].startswith("Сейчас покупка на 14")
 
 
-async def test_free_uses_task_of_detected_scenario_and_one_call():
+async def test_free_goes_to_analyst_with_report_and_one_call():
     llm = ScriptedLLM("Больше всего денег уходит на развлечения — там и проще сократить.")
-    await run("Как мне меньше тратить на еду?", "free", llm)
-    assert len(llm.calls) == 1  # сценарий выбран по словам, модель вызвана один раз
-    assert llm.calls[0][1]["content"].startswith("Задача: Объясни, куда уходят деньги")
+    res = await run("Как мне меньше тратить на еду?", "free", llm)
+    assert len(llm.calls) == 1
+    # модель видит полную сводку расчётов и сам вопрос, а не шаблонный черновик
+    assert llm.calls[0][1]["content"].startswith("Сводка данных пользователя:")
+    assert "Вопрос пользователя: Как мне меньше тратить на еду?" in llm.calls[0][1]["content"]
+    assert res.result["text"] == "Больше всего денег уходит на развлечения — там и проще сократить."
 
 
 async def test_glossary_gets_source_text():

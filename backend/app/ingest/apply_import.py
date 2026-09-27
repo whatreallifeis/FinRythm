@@ -28,9 +28,10 @@ def _key(date: dt.date, amount: Decimal, merchant: str) -> tuple[str, Decimal, s
     return date.isoformat(), to_money(amount), merchant.strip().casefold()
 
 
-def _op_id(key: tuple[str, Decimal, str]) -> str:
+def _op_id(key: tuple[str, Decimal, str], repeat: int = 0) -> str:
     date, amount, merchant = key
-    return "imp-" + hashlib.sha1(f"{date}|{amount}|{merchant}".encode()).hexdigest()[:12]
+    suffix = f"|{repeat}" if repeat else ""
+    return "imp-" + hashlib.sha1(f"{date}|{amount}|{merchant}{suffix}".encode()).hexdigest()[:12]
 
 
 def _problem(row: ImportRow, as_of: dt.date) -> str | None:
@@ -50,15 +51,22 @@ def _problem(row: ImportRow, as_of: dt.date) -> str | None:
     return None
 
 
-def apply_import(state: UserState, rows: list[ImportRow], as_of: dt.date) -> tuple[UserState, ImportResult]:
+def apply_import(
+    state: UserState, rows: list[ImportRow], as_of: dt.date, *, keep_repeats: bool = False
+) -> tuple[UserState, ImportResult]:
     """Добавить строки к операциям пользователя. Исходный state не меняется.
 
     Отказ строки: нулевая сумма, дата в будущем, нет описания, номер карты.
     Неизвестная категория → «other» с предупреждением. Дубликаты пропускаются с предупреждением.
+    keep_repeats=True — выписка целиком: одинаковые строки внутри файла — это разные операции
+    (две поездки на автобусе за 48 ₽ в один день), они сохраняются; дубликатом остаётся только то,
+    что уже было загружено раньше.
     В конце признак регулярности пересчитывается по всем операциям (mark_recurring).
     """
     transactions = list(state.transactions)
     existing = {_key(op.date, op.amount, op.merchant) for op in transactions}
+    already = set(existing)
+    repeats: dict[tuple[str, Decimal, str], int] = {}
     imported = 0
     rejected: list[RejectedRow] = []
     warnings: list[str] = []
@@ -69,13 +77,16 @@ def apply_import(state: UserState, rows: list[ImportRow], as_of: dt.date) -> tup
             rejected.append(RejectedRow(row=index, message=message))
             continue
         key = _key(row.date, row.amount, row.merchant)
-        if key in existing:
+        repeat = 0
+        if keep_repeats and key in existing and key not in already:
+            repeat = repeats[key] = repeats.get(key, 0) + 1
+        elif key in existing:
             warnings.append(f"Строка {index}: такая операция уже есть, пропущена.")
             continue
         category = row.category if row.category in CATEGORY_IDS else "other"
         try:
             op = Operation(
-                id=_op_id(key),
+                id=_op_id(key, repeat),
                 date=row.date,
                 amount=key[1],
                 category=category,

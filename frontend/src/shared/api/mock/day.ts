@@ -104,7 +104,7 @@ function describeExpense(
   if (largest && share > 0) {
     parts.push(`Это самый крупный обязательный платёж — ${share}% всех регулярных расходов месяца.`);
   } else if (op.category === 'subscriptions') {
-    parts.push(`За год выходит ${money(amount * 12)} — стоит проверить, пользуетесь ли вы этим сервисом.`);
+    parts.push(`Если платить весь год, выйдет ${money(amount * 12)} — стоит проверить, пользуетесь ли вы этим сервисом.`);
   } else if (share >= 5) {
     parts.push(`Это ${share}% регулярных расходов месяца.`);
   }
@@ -113,7 +113,7 @@ function describeExpense(
 }
 
 function describeIncome(op: DayOperation, date: string) {
-  return `${op.title} — ${money(op.amount)}, регулярное поступление ${parseIso(date).getDate()}-го числа. С этого дня дневной лимит пересчитывается до следующих денег.`;
+  return `${op.title} — ${money(op.amount)}, регулярное поступление ${parseIso(date).getDate()}-го числа. С этого дня сумма, которую можно тратить в день, пересчитывается до следующих денег.`;
 }
 
 export function buildDayInsight(args: {

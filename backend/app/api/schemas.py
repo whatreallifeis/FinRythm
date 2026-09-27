@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
-from app.models import ScenarioId
+from app.models import CategoryId, ScenarioId
 
 
 class _In(BaseModel):
@@ -62,6 +62,38 @@ class ImportRowIn(_In):
 
 class ImportIn(_In):
     rows: list[ImportRowIn] = Field(max_length=5000)
+
+
+class DatasetRowIn(_In):
+    """Строка готовой выписки: фронтенд уже разобрал CSV и проверил дату."""
+
+    date: date
+    amount: Decimal
+    category: str = "other"
+    merchant: str = ""
+    row: int | None = Field(default=None, ge=1)
+
+
+class DatasetIn(_In):
+    """Выписка целиком: строки и баланс (в строках выписки баланса нет)."""
+
+    rows: list[DatasetRowIn] = Field(max_length=5000)
+    balance: Decimal = Field(ge=0, max_digits=12, decimal_places=2)
+
+
+class TransactionRenameIn(_In):
+    merchant: str = Field(min_length=1, max_length=200)
+
+
+class RenameIn(_In):
+    title: str = Field(min_length=1, max_length=100)
+
+
+class AutopaymentIn(_In):
+    title: str = Field(min_length=1, max_length=100)
+    amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    day_of_month: int = Field(ge=1, le=31)
+    category: CategoryId = "other"
 
 
 class AskIn(_In):

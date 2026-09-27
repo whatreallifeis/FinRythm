@@ -20,7 +20,7 @@ import re
 import time
 from decimal import Decimal
 
-from app.ai import guardrails, prompts, scenarios
+from app.ai import analyst, guardrails, prompts, scenarios
 from app.ai.amounts import extract_amount
 from app.ai.answer_check import language_problem, meaning_problem, split_verdict
 from app.ai.llm.base import LLMClient, LLMUnavailable
@@ -38,6 +38,8 @@ ANSWER_TIMEOUT = 40.0
 MIN_RETRY_SECONDS = 12.0
 MAX_ATTEMPTS = 2
 MAX_TEXT = 1500
+# Вопросы без готового шаблона: модель отвечает сама по полной сводке расчётов (ai/analyst.py).
+ANALYST_SCENARIOS = {"free", "expenses"}
 
 
 def verify_numbers(reply: scenarios.Reply, question: str, text: str | None = None) -> tuple[bool, list]:
@@ -142,6 +144,18 @@ async def ask(
     decide = intent == "decide_for_me" and extract_amount(question) is not None
     if intent is not None and not decide:
         return guardrails.refusal(intent, state, as_of, kb)
+
+    if uses_model(llm) and not decide and scenario_id in ANALYST_SCENARIOS:
+        answer, reason = await analyst.analyze(question, state, as_of, llm)
+        if answer is not None:
+            return answer
+        # Модель не уложилась или ошиблась в числах — шаблон, без второго обращения к ней.
+        log.warning("analyst fallback: scenario=%s reason=%s", scenario_id, reason[:80])
+        llm = None
+        # Свободный вопрос без подходящего шаблона — короткая сводка вместо «уточните вопрос».
+        if scenario_id == "free" and scenarios.classify_free(question) is None:
+            if summary := analyst.digest(state, as_of):
+                return summary
 
     # «Реши за меня, покупать ли за 4 900 ₽» — последствия обоих вариантов, решение за пользователем.
     run_scenario = "impulse" if decide else scenario_id

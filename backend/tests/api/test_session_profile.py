@@ -129,7 +129,12 @@ def test_verify_init_data_without_hash():
 
 
 def test_empty_profile(client, auth):
-    assert client.get("/api/profile", headers=auth).json() == {"balance": 0, "incomes": [], "goals": []}
+    assert client.get("/api/profile", headers=auth).json() == {
+        "balance": 0,
+        "incomes": [],
+        "autopayments": [],
+        "goals": [],
+    }
     assert client.get("/api/transactions", headers=auth).json() == []
 
 

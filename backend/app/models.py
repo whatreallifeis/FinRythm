@@ -351,6 +351,20 @@ class IncomeRule(_Model):
     day_of_month: int = Field(ge=1, le=31)
 
 
+class AutopaymentRule(_Model):
+    """Автоплатёж, добавленный пользователем вручную: списание в один и тот же день месяца.
+
+    Регулярные расходы из выписки (аренда, связь) становятся платежами календаря сами, по операциям;
+    здесь — только то, чего в выписке ещё нет (новая подписка, спортзал со следующего месяца).
+    """
+
+    id: str
+    title: str = Field(min_length=1, max_length=100)
+    amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    day_of_month: int = Field(ge=1, le=31)
+    category: CategoryId = "other"
+
+
 class SavingGoal(_Model):
     """Цель накопления. Во фронтенде — Goal."""
 
@@ -372,6 +386,7 @@ class UserState(_Model):
 
     balance: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
     incomes: list[IncomeRule] = Field(default_factory=list)
+    autopayments: list[AutopaymentRule] = Field(default_factory=list)
     goals: list[SavingGoal] = Field(default_factory=list)
     transactions: list[Operation] = Field(default_factory=list)
     # Сохранённые диалоги помощника (HistoryEntry фронтенда). API хранит их как есть, core их не читает.

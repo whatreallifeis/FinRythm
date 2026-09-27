@@ -18,10 +18,10 @@ from app.core.explain import coverage_days, explained, human_date, step
 from app.core.money import ceil_rub, days_word, floor_rub, fmt_num, fmt_rub, to_money
 from app.core.runway_calendar import (
     ZERO,
+    bills_of,
     bills_until,
     make_plan,
     next_on_day,
-    recurring_bills,
     safe_daily,
 )
 from app.models import CATEGORY_IDS, Explained, Operation, UserState
@@ -189,9 +189,7 @@ def build_forecast(state: UserState, as_of: dt.date) -> Explained:
         if as_of < next_on_day(as_of, inc.day_of_month) <= end
     ]
     bills = [
-        (title, amount)
-        for title, amount, day in recurring_bills(state.transactions)
-        if as_of < next_on_day(as_of, day) <= end
+        (bill.title, bill.amount) for bill in bills_of(state) if as_of < next_on_day(as_of, bill.day) <= end
     ]
     expected = sum((a for _, a in incomes), ZERO)
     planned = sum((a for _, a in bills), ZERO)

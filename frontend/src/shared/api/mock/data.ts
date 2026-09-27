@@ -151,13 +151,7 @@ export const demoHistory: HistoryEntry[] = [
   },
 ];
 
-/** Пример CSV, который можно вставить на экране импорта. */
-export const demoCsv = `date,amount,category,merchant
-2026-09-27,-540,food,Супермаркет
-2026-09-27,-99,subscriptions,Облачное хранилище
-2026-09-28,-1500,transport,Такси в аэропорт`;
-
-/** Тот же пример, но с ошибками — для проверки разбора некорректного ввода. */
+/** Пример CSV с ошибками — для проверки разбора некорректного ввода. */
 export const demoCsvWithErrors = `date,amount,category,merchant
 2026-09-27,-540,food,Супермаркет
 27.09.2026,-99,subscriptions,Облачное хранилище

@@ -9,9 +9,16 @@ import { Button, Card, Skeleton } from '@/shared/ui';
 import { AnswerCard, UserBubble } from './AnswerCard';
 import { findScenario, type Scenario } from './scenarios';
 
+/**
+ * Сколько раз можно отправить один и тот же вопрос: первый раз и два повтора.
+ * Повтор нужен, чтобы получить другую формулировку ответа или дождаться ответа после сбоя сети;
+ * ограничение не даёт упереться в лимит сервера (20 вопросов в минуту) одной кнопкой.
+ */
+const MAX_ATTEMPTS = 3;
+
 type Turn =
-  | { id: number; role: 'user'; text: string }
-  | { id: number; role: 'assistant'; data: Explained<AskAnswer> };
+  | { id: number; role: 'user'; text: string; questionId: number; attempt: number }
+  | { id: number; role: 'assistant'; data: Explained<AskAnswer>; questionId: number };
 
 const toHistoryMessage = (turn: Turn): HistoryMessage =>
   turn.role === 'user' ? { role: 'user', text: turn.text } : { role: 'assistant', answer: turn.data };
@@ -33,6 +40,9 @@ function ScenarioDialog({ scenario }: { scenario: Scenario }) {
 
   const [draft, setDraft] = useState('');
   const [turns, setTurns] = useState<Turn[]>([]);
+  // Сколько раз уже отправлен каждый вопрос (ключ — id первой отправки).
+  const [attempts, setAttempts] = useState<Record<number, number>>({});
+  const [failed, setFailed] = useState<{ questionId: number; text: string } | null>(null);
   const ask = useAsk();
   const saveHistory = useSaveHistory();
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -43,6 +53,40 @@ function ScenarioDialog({ scenario }: { scenario: Scenario }) {
   const startedAt = useRef(new Date().toISOString());
   const title = useRef<string | null>(null);
 
+  const persist = (messages: Turn[]) => {
+    saveHistory.mutate({
+      id: dialogId.current,
+      scenarioId: scenario.id,
+      title: title.current ?? '',
+      createdAt: startedAt.current,
+      messages: messages.map(toHistoryMessage),
+    });
+  };
+
+  /** Отправка вопроса. base — диалог, в котором вопрос уже показан. */
+  const send = (text: string, questionId: number, base: Turn[]) => {
+    setAttempts((current) => ({ ...current, [questionId]: (current[questionId] ?? 0) + 1 }));
+    setFailed(null);
+    // Сохраняем уже вопрос: если пользователь уйдёт до ответа, запись не потеряется.
+    persist(base);
+
+    ask.mutate(
+      { question: text, scenarioId: scenario.id },
+      {
+        onSuccess: (data) => {
+          const next: Turn[] = [...base, { id: Date.now() + 1, role: 'assistant', data, questionId }];
+          setTurns(next);
+          haptic(data.dataQuality.sufficient ? 'success' : 'warning');
+          persist(next);
+        },
+        onError: () => {
+          setFailed({ questionId, text });
+          haptic('error');
+        },
+      },
+    );
+  };
+
   const submit = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || ask.isPending) return;
@@ -50,36 +94,38 @@ function ScenarioDialog({ scenario }: { scenario: Scenario }) {
     // Заголовок записи в истории — первый вопрос пользователя в этом диалоге.
     if (!title.current) title.current = trimmed;
 
-    const withUser: Turn[] = [...turns, { id: Date.now(), role: 'user', text: trimmed }];
+    const questionId = Date.now();
+    const withUser: Turn[] = [
+      ...turns,
+      { id: questionId, role: 'user', text: trimmed, questionId, attempt: 1 },
+    ];
     setTurns(withUser);
     setDraft('');
-
-    const persist = (messages: HistoryMessage[]) => {
-      saveHistory.mutate({
-        id: dialogId.current,
-        scenarioId: scenario.id,
-        title: title.current ?? trimmed,
-        createdAt: startedAt.current,
-        messages,
-      });
-    };
-
-    // Сохраняем уже вопрос: если пользователь уйдёт до ответа, запись не потеряется.
-    persist(withUser.map(toHistoryMessage));
-
-    ask.mutate(
-      { question: trimmed, scenarioId: scenario.id },
-      {
-        onSuccess: (data) => {
-          const next: Turn[] = [...withUser, { id: Date.now() + 1, role: 'assistant', data }];
-          setTurns(next);
-          haptic(data.dataQuality.sufficient ? 'success' : 'warning');
-          persist(next.map(toHistoryMessage));
-        },
-        onError: () => haptic('error'),
-      },
-    );
+    send(trimmed, questionId, withUser);
   };
+
+  /** Тот же вопрос ещё раз — помощник сформулирует ответ заново. */
+  const askAgain = (questionId: number) => {
+    const used = attempts[questionId] ?? 0;
+    const question = turns.find((turn) => turn.role === 'user' && turn.questionId === questionId);
+    if (ask.isPending || used >= MAX_ATTEMPTS || question?.role !== 'user') return;
+    haptic('light');
+    const withRepeat: Turn[] = [
+      ...turns,
+      { id: Date.now(), role: 'user', text: question.text, questionId, attempt: used + 1 },
+    ];
+    setTurns(withRepeat);
+    send(question.text, questionId, withRepeat);
+  };
+
+  /** После сбоя вопрос уже на экране — отправляем его снова без новой реплики. */
+  const retryFailed = () => {
+    if (!failed || ask.isPending || (attempts[failed.questionId] ?? 0) >= MAX_ATTEMPTS) return;
+    haptic('light');
+    send(failed.text, failed.questionId, turns);
+  };
+
+  const last = turns[turns.length - 1];
 
   // Нативная кнопка «назад» в Telegram, своя в шапке на сайте.
   useBackButton(() => navigate('/app/assistant'));
@@ -92,26 +138,29 @@ function ScenarioDialog({ scenario }: { scenario: Scenario }) {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [turns.length, ask.isPending]);
+  }, [turns.length, ask.isPending, failed]);
 
   return (
     <Screen title={scenario.title} subtitle={scenario.tagline}>
       <Greeting scenario={scenario} />
 
       {turns.map((turn) =>
-        turn.role === 'user' ? (
-          <UserBubble key={turn.id} text={turn.text} />
+        turn.role === 'assistant' ? (
+          <AnswerCard key={turn.id} answer={turn.data} />
+        ) : turn.attempt > 1 ? (
+          <p key={turn.id} className="text-center text-xs text-muted">
+            ↻ Тот же вопрос ещё раз · попытка {turn.attempt} из {MAX_ATTEMPTS}
+          </p>
         ) : (
-          <AnswerCard
-            key={turn.id}
-            answer={turn.data}
-            insufficientAction={
-              <Button variant="secondary" size="sm" onClick={() => setDraft(scenario.example)}>
-                Подставить пример
-              </Button>
-            }
-          />
+          <UserBubble key={turn.id} text={turn.text} />
         ),
+      )}
+
+      {last?.role === 'assistant' && !ask.isPending && !failed && (
+        <AskAgain
+          left={MAX_ATTEMPTS - (attempts[last.questionId] ?? 0)}
+          onClick={() => askAgain(last.questionId)}
+        />
       )}
 
       {ask.isPending && (
@@ -119,6 +168,24 @@ function ScenarioDialog({ scenario }: { scenario: Scenario }) {
           <Skeleton className="mb-2 h-4 w-full" />
           <Skeleton className="mb-2 h-4 w-5/6" />
           <Skeleton className="h-4 w-2/3" />
+        </Card>
+      )}
+
+      {failed && !ask.isPending && (
+        <Card>
+          <p className="mb-1 font-medium text-negative">Ответ не пришёл</p>
+          <p className="mb-3 text-sm text-muted">
+            {ask.error instanceof Error ? ask.error.message : 'Не удалось связаться с помощником.'}
+          </p>
+          {(attempts[failed.questionId] ?? 0) < MAX_ATTEMPTS ? (
+            <Button variant="secondary" size="sm" onClick={retryFailed}>
+              Отправить ещё раз
+            </Button>
+          ) : (
+            <p className="text-sm text-muted">
+              Попытки для этого вопроса закончились — попробуйте позже.
+            </p>
+          )}
         </Card>
       )}
 
@@ -131,20 +198,34 @@ function ScenarioDialog({ scenario }: { scenario: Scenario }) {
           className="w-full resize-none rounded-card border border-border bg-surface p-3 text-sm outline-none placeholder:text-muted focus:border-accent/60"
         />
 
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" size="sm" onClick={() => setDraft(scenario.example)}>
-            Подставить пример
+        {draft && (
+          <Button variant="ghost" size="sm" onClick={() => setDraft('')}>
+            Очистить
           </Button>
-          {draft && (
-            <Button variant="ghost" size="sm" onClick={() => setDraft('')}>
-              Очистить
-            </Button>
-          )}
-        </div>
+        )}
       </div>
 
       <div ref={bottomRef} />
     </Screen>
+  );
+}
+
+/** «Спросить ещё раз» под последним ответом — или объяснение, почему повторов больше нет. */
+function AskAgain({ left, onClick }: { left: number; onClick: () => void }) {
+  if (left <= 0) {
+    return (
+      <p className="text-center text-xs text-muted">
+        Повторы для этого вопроса закончились — переформулируйте его, если ответ не подошёл.
+      </p>
+    );
+  }
+  return (
+    <div className="flex items-center justify-center gap-2">
+      <Button variant="ghost" size="sm" onClick={onClick}>
+        ↻ Спросить ещё раз
+      </Button>
+      <span className="text-xs text-muted">осталось {left}</span>
+    </div>
   );
 }
 

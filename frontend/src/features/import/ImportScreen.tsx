@@ -3,13 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Screen } from '@/layouts/Screen';
 import { useMainButton, usePlatform } from '@/platform';
 import { useDatasetReady } from '@/shared/api/dataset';
-import {
-  useImportTransactions,
-  useLoadDataset,
-  useSeedDemo,
-  useTransactions,
-} from '@/shared/api/hooks';
-import { demoCsv, demoCsvWithErrors } from '@/shared/api/mock/data';
+import { useImportTransactions, useLoadDataset, useTransactions } from '@/shared/api/hooks';
+import { demoCsvWithErrors } from '@/shared/api/mock/data';
 import { parseCsv } from '@/shared/lib/csv';
 import { categoryLabel } from '@/shared/lib/categories';
 import { formatDate, formatSigned } from '@/shared/lib/format';
@@ -41,7 +36,6 @@ export function ImportScreen() {
 
   const transactions = useTransactions();
   const importMutation = useImportTransactions();
-  const seedDemo = useSeedDemo();
   const loadDataset = useLoadDataset();
 
   const parsed = useMemo(() => (raw.trim() ? parseCsv(raw) : null), [raw]);
@@ -73,17 +67,6 @@ export function ImportScreen() {
         haptic('error');
       },
     });
-  };
-
-  const loadExample = async () => {
-    setScene('loading');
-    try {
-      await seedDemo.mutateAsync();
-      navigate('/app');
-    } catch {
-      setScene('form');
-      haptic('error');
-    }
   };
 
   /** Готовая выписка разбирается тем же парсером, что и файл пользователя. */
@@ -195,19 +178,6 @@ export function ImportScreen() {
         )}
 
         <div className="mt-3 flex flex-wrap gap-2">
-          <Button
-            variant={ready ? 'secondary' : 'primary'}
-            size="sm"
-            onClick={() => {
-              if (!ready) {
-                void loadExample();
-                return;
-              }
-              setContent(demoCsv, 'пример.csv');
-            }}
-          >
-            Вставить пример
-          </Button>
           <Button
             variant="secondary"
             size="sm"

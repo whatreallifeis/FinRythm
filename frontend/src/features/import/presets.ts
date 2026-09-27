@@ -1,5 +1,6 @@
 import type { GoalDraft } from '@/shared/api/types';
 import freelanceCsv from './presets/freelance.csv?raw';
+import juniorCsv from './presets/junior.csv?raw';
 import studentCsv from './presets/student.csv?raw';
 import workerCsv from './presets/worker.csv?raw';
 
@@ -10,8 +11,9 @@ import workerCsv from './presets/worker.csv?raw';
  * («Автобусные линии 1», «YARCHE KRASNOJARSK RU», переводы по номеру телефона,
  * пополнения через СБП, кэшбэк), но все суммы и люди вымышлены.
  *
- * Три набора дают три разных состояния продукта: спокойный месяц, «впритык»
- * после аренды и кассовый разрыв при нерегулярном доходе. CSV лежат рядом
+ * Четыре набора дают разные состояния продукта: спокойный месяц, «впритык»
+ * после аренды, кассовый разрыв при нерегулярном доходе и растущие траты при цели,
+ * которая к сроку не успевает. CSV лежат рядом
  * в `presets/` — их можно открыть и загрузить вручную тем же форматом.
  */
 export interface DatasetPreset {
@@ -61,5 +63,16 @@ export const DATASET_PRESETS: DatasetPreset[] = [
     csv: freelanceCsv,
     balance: 2300,
     goals: [{ title: 'Подушка безопасности', targetAmount: 20000, savedAmount: 500, deadline: null }],
+  },
+  {
+    id: 'junior',
+    title: 'Первая работа после учёбы',
+    persona:
+      'Зарплата раз в месяц 15-го, аренда 20-го, фитнес, курс в рассрочку и пять подписок. В сентябре — монитор в DNS, чаще такси и доставка.',
+    check: 'Траты растут к прошлому месяцу, подписки за год, цель на ноутбук к сроку не успевает — что урезать.',
+    fileName: 'junior.csv',
+    csv: juniorCsv,
+    balance: 9800,
+    goals: [{ title: 'Ноутбук для работы', targetAmount: 90000, savedAmount: 15000, deadline: '2027-05-01' }],
   },
 ];

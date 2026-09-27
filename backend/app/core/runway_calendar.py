@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import calendar
 import datetime as dt
+import hashlib
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, Decimal
 
@@ -81,11 +82,47 @@ def recurring_bills(transactions: list[Operation]) -> list[tuple[str, Decimal, i
     return [(op.merchant, -op.amount, op.date.day) for op in latest.values()]
 
 
-def planned_events(state: UserState, as_of: dt.date) -> list[Event]:
-    events = [
-        Event(next_on_day(as_of, day), title, -amount)
-        for title, amount, day in recurring_bills(state.transactions)
+@dataclass(frozen=True)
+class Bill:
+    """Платёж календаря: регулярный расход из выписки или автоплатёж, добавленный вручную."""
+
+    id: str
+    title: str
+    amount: Decimal  # > 0
+    day: int
+    category: str
+    source: str  # "detected" — по операциям, "manual" — добавлен пользователем
+
+
+def bill_id(merchant: str) -> str:
+    """Стабильный id регулярного расхода из выписки: по нормализованному описанию."""
+    return "rec-" + hashlib.sha1(normalize_merchant(merchant).encode()).hexdigest()[:10]
+
+
+def bills_of(state: UserState) -> list[Bill]:
+    """Все платежи календаря. Ручной автоплатёж с тем же названием, что и регулярный расход
+    из выписки, не дублируется: сумма и день берутся из последней операции."""
+    latest: dict[str, Operation] = {}
+    for op in state.transactions:
+        if not op.is_recurring or op.amount >= 0:
+            continue
+        key = normalize_merchant(op.merchant)
+        if key not in latest or op.date >= latest[key].date:
+            latest[key] = op
+    bills = [
+        Bill(bill_id(op.merchant), op.merchant, -op.amount, op.date.day, op.category, "detected")
+        for op in latest.values()
     ]
+    bills += [
+        Bill(rule.id, rule.title, rule.amount, rule.day_of_month, rule.category, "manual")
+        for rule in state.autopayments
+        if normalize_merchant(rule.title) not in latest
+    ]
+    return bills
+
+
+def planned_events(state: UserState, as_of: dt.date) -> list[Event]:
+    events = [Event(next_on_day(as_of, bill.day), bill.title, -bill.amount) for bill in bills_of(state)]
     events += [Event(next_on_day(as_of, inc.day_of_month), inc.title, inc.amount) for inc in state.incomes]
     events.sort(key=lambda e: (e.date, e.title))
     return events

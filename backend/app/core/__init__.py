@@ -3,10 +3,12 @@
 from app.core.analysis import build_forecast, build_goal_plan, build_overview
 from app.core.breakdown import spending_breakdown
 from app.core.categories import categorize
+from app.core.day import build_day_insight
 from app.core.demo import DEMO_AS_OF, load_demo_state
 from app.core.explain import coverage_days
 from app.core.goals import plan_all_goals, plan_goal
-from app.core.recurring import detect_recurring, mark_recurring
+from app.core.recurring import detect_income_rules, detect_recurring, mark_recurring
+from app.core.report import build_report, report_text
 from app.core.risks import detect_risks
 from app.core.runway import calculate_runway, simulate
 from app.core.runway_calendar import build_runway, check_impulse
@@ -14,21 +16,25 @@ from app.core.snapshot import build_snapshot
 
 __all__ = [
     "DEMO_AS_OF",
+    "build_day_insight",
     "build_forecast",
     "build_goal_plan",
     "build_overview",
+    "build_report",
     "build_runway",
     "build_snapshot",
     "calculate_runway",
     "categorize",
     "check_impulse",
     "coverage_days",
+    "detect_income_rules",
     "detect_recurring",
     "detect_risks",
     "load_demo_state",
     "mark_recurring",
     "plan_all_goals",
     "plan_goal",
+    "report_text",
     "simulate",
     "spending_breakdown",
 ]

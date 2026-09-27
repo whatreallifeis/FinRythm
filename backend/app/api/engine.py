@@ -34,6 +34,21 @@ def build_goal_plan(state: UserState, goal_id: str, as_of: date) -> Explained | 
     return core.build_goal_plan(state, goal_id, as_of)
 
 
+def build_day_insight(state: UserState, day: date, as_of: date) -> Explained:
+    return core.build_day_insight(state, day, as_of)
+
+
+async def polish_day_note(insight: Explained, *, llm) -> Explained:
+    """Справка дня живым языком, если подключена модель; иначе — шаблон core."""
+    if not ai.uses_model(llm):
+        return insight
+    return await ai.polish_day_note(llm, insight)
+
+
+def replace_dataset(rows: list[ImportRow], balance: Decimal, as_of: date) -> tuple[UserState, ImportResult]:
+    return ingest.replace_dataset(rows, balance, as_of)
+
+
 def load_demo_state() -> UserState:
     return core.load_demo_state()
 

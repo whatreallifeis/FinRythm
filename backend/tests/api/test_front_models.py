@@ -75,6 +75,7 @@ def test_user_state_empty_and_roundtrip_through_json():
     assert UserState().model_dump() == {
         "balance": None,
         "incomes": [],
+        "autopayments": [],
         "goals": [],
         "transactions": [],
         "history": [],

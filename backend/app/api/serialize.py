@@ -10,6 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.core.runway_calendar import Bill, bills_of
 from app.models import Explained, IncomeRule, Operation, SavingGoal, UserState
 
 CENT = Decimal("0.01")
@@ -59,6 +60,17 @@ def public_income(income: IncomeRule) -> dict:
     }
 
 
+def public_autopayment(bill: Bill) -> dict:
+    """Автоплатёж календаря: найденный в выписке (id «rec-…») или добавленный вручную."""
+    return {
+        "id": bill.id,
+        "title": bill.title,
+        "amount": money(bill.amount),
+        "dayOfMonth": bill.day,
+        "category": bill.category,
+    }
+
+
 def public_goal(goal: SavingGoal) -> dict:
     return {
         "id": goal.id,
@@ -74,6 +86,9 @@ def public_profile(state: UserState) -> dict:
         # Фронтенд ждёт число; «баланс не указан» он узнаёт из dataQuality аналитики.
         "balance": money(state.balance) if state.balance is not None else 0,
         "incomes": [public_income(item) for item in state.incomes],
+        "autopayments": [
+            public_autopayment(bill) for bill in sorted(bills_of(state), key=lambda b: (b.day, b.title))
+        ],
         "goals": [public_goal(item) for item in state.goals],
     }
 

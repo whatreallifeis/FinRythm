@@ -110,10 +110,10 @@ const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.strin
  * компоненты и хуки не меняются.
  */
 export const api = {
-  /** Подставляет демо-набор. На реальном бэкенде этим станет импорт файла. */
+  /** Подставляет демо-набор студента. */
   seedDemo(): Promise<void> {
     if (USE_MOCK) return mockHandlers.seedDemo();
-    return Promise.reject(new ApiError('http', 'Загрузка примера доступна только в демо-режиме'));
+    return request<void>('/api/demo/seed', null, post({}));
   },
 
   clearDataset(): Promise<void> {
