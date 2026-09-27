@@ -12,7 +12,7 @@
 
 - **Тестовый стенд.** `deploy/` (caddy + api + ollama по флагу), `docs/03_deploy.md` — пошаговая инструкция для Рег.облака, ручной чек-лист, Ollama. В CI job `deploy` поднимает стенд целиком. В Swagger — кнопка Authorize.
 
-- **Модель помощника — Алиса AI** (Yandex AI Studio, `aliceai-llm`) вместо Ollama: Ollama убрана из `deploy/compose.yml` и с сервера; настройки — `docs/03_deploy.md` §9; ID каталога (`OPENAI_PROJECT_ID`) из `.env` передаётся клиенту openai при старте API.
+- **Модель помощника — GigaChat** (провайдер Сони, #69): на сервере `LLM_PROVIDER=gigachat`, ответ 0,4–1,3 с. Ollama и Алиса AI убраны из `deploy/compose.yml`, `.env.example`, кода и с сервера; настройки — `docs/03_deploy.md` §9.
 
 ## В работе
 - Стенд на сервере Рег.облака по `docs/03_deploy.md` — разворачивает команда.

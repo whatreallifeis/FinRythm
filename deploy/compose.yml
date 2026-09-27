@@ -1,6 +1,6 @@
 # Тестовый сервер (Рег.облако и любой VPS с Docker). Запуск из корня репозитория:
 #   docker compose -f deploy/compose.yml --env-file .env up -d --build
-# Модель помощника — Алиса AI (Yandex AI Studio), настройки LLM_* в .env, docs/03_deploy.md §9.
+# Модель помощника — GigaChat (Сбер), настройки LLM_PROVIDER и GIGACHAT_CREDENTIALS в .env, docs/03_deploy.md §9.
 # Подробно — docs/03_deploy.md.
 name: finritm
 
