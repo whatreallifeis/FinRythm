@@ -5,8 +5,8 @@ import { MotionStage } from '@/shared/motion/MotionStage';
 import { useAuthStatus } from './session';
 import { useAuth } from './useAuth';
 
-/** Ссылка на бота. Подставить реальную, когда бот будет создан. */
-const BOT_URL = 'https://t.me/your_bot_here';
+/** Ссылка на бота: в нём сайт открывается как Mini App. */
+const BOT_URL = 'https://t.me/finrythmbot';
 
 /**
  * Первый экран в браузере.
