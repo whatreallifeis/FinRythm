@@ -6,11 +6,14 @@ from typing import Any
 
 from app.ai.llm.base import LLMClient
 from app.ai.llm.fake import FakeLLM
+from app.ai.llm.gigachat import DEFAULT_MODEL as GIGACHAT_MODEL
+from app.ai.llm.gigachat import DEFAULT_SCOPE as GIGACHAT_SCOPE
+from app.ai.llm.gigachat import GigaChatLLM
 from app.ai.llm.openai_compat import DEFAULT_TIMEOUT, OpenAICompatLLM
 
 log = logging.getLogger(__name__)
 
-PROVIDERS = ("fake", "openai_compat")
+PROVIDERS = ("fake", "openai_compat", "gigachat")
 
 
 def llm_timeout(settings: Any) -> float:
@@ -42,6 +45,21 @@ def get_llm(settings: Any) -> LLMClient:
             base_url=base_url,
             model=model,
             api_key=getattr(settings, "llm_api_key", "") or "",
+            timeout=llm_timeout(settings),
+        )
+    if provider == "gigachat":
+        credentials = (
+            getattr(settings, "gigachat_credentials", "") or os.environ.get("GIGACHAT_CREDENTIALS", "")
+        ).strip()
+        if not credentials:
+            raise ValueError(
+                "Для LLM_PROVIDER=gigachat задайте GIGACHAT_CREDENTIALS — ключ авторизации проекта "
+                "GigaChat API с developers.sber.ru."
+            )
+        return GigaChatLLM(
+            credentials=credentials,
+            scope=os.environ.get("GIGACHAT_SCOPE", "").strip() or GIGACHAT_SCOPE,
+            model=(getattr(settings, "llm_model", "") or "").strip() or GIGACHAT_MODEL,
             timeout=llm_timeout(settings),
         )
     raise ValueError(

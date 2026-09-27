@@ -51,6 +51,20 @@ LLM_RUNS = [
         "model_ok": "15 из 15",
         "seconds": "68 с на 30 вопросов",
     },
+    {
+        "date": "27.09.2026",
+        "who": "Соня",
+        "model": "GigaChat (Сбер, Freemium для физлиц)",
+        "hardware": "API Сбера",
+        "version": "после #39 (короткий промпт, бюджет 40 с)",
+        "passed": "30 из 30",
+        "numbers": "15 из 15",
+        "refusals": "10 из 10",
+        "false_refusals": "0 из 20",
+        "sources": "14 из 14",
+        "model_ok": "15 из 15",
+        "seconds": "14 с на 30 вопросов",
+    },
 ]
 KB_PATH = ROOT / "data" / "knowledge_base" / "kb.json"
 CORE_FUNCS = ("build_runway", "check_impulse", "build_forecast", "build_overview", "build_goal_plan")
