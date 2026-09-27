@@ -39,7 +39,7 @@ def get_llm(settings: Any) -> LLMClient:
         if missing:
             raise ValueError(
                 f"Для LLM_PROVIDER=openai_compat задайте {', '.join(missing)} "
-                "(например, Ollama: LLM_BASE_URL=http://localhost:11434/v1, LLM_MODEL=qwen2.5:7b)."
+                "(адрес и модель OpenAI-совместимого API). Для GigaChat: LLM_PROVIDER=gigachat."
             )
         return OpenAICompatLLM(
             base_url=base_url,

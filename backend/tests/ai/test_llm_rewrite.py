@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from app.ai import LLMUnavailable, ask, get_llm, prompts
+from app.ai.answer_check import split_verdict
 from app.ai.llm.base import LLMReply
 from app.ai.llm.factory import llm_timeout
 from app.ai.llm.openai_compat import OpenAICompatLLM
@@ -49,6 +50,12 @@ class ScriptedLLM:
         return LLMReply(content=answer)
 
 
+async def verdict_of(question, scenario, kb=None):
+    """Первая фраза шаблонного ответа — её модель не переписывает."""
+    template = await run(question, scenario, None, kb=kb)
+    return split_verdict(template.result["text"])[0]
+
+
 async def run(question, scenario, llm, state=None, kb=None):
     return await ask(question, scenario, state or load_demo_state(), DEMO_AS_OF, llm=llm, kb=kb)
 
@@ -56,12 +63,14 @@ async def run(question, scenario, llm, state=None, kb=None):
 async def test_model_text_used_when_numbers_ok():
     llm = ScriptedLLM(GOOD_14900)
     res = await run("Хочу купить телефон за 14 900 ₽", "impulse", llm)
-    assert res.result["text"] == GOOD_14900
+    verdict = await verdict_of("Хочу купить телефон за 14 900 ₽", "impulse")
+    assert res.result["text"] == f"{verdict} {GOOD_14900}"
     system, user = llm.calls[0]
     assert system == {"role": "system", "content": prompts.SYSTEM}
     assert "на «вы»" in system["content"]
     assert user["content"].startswith("Задача: Объясни, влезет ли покупка")
-    assert "Черновик: Сейчас покупка на 14" in user["content"]
+    assert "Первая фраза (уже написана): Сейчас покупка на 14" in user["content"]
+    assert "Остальное из черновика: Безопаснее подождать" in user["content"]
     # расчёт в промпт не идёт — модель видит только черновик (issue #39: короче промпт на CPU)
     assert "verdict" not in user["content"] and "{" not in user["content"]
     assert len(system["content"]) + len(user["content"]) < 1200
@@ -81,7 +90,7 @@ async def test_system_prompt_is_the_same_for_all_scenarios():
 async def test_retry_after_invented_number():
     llm = ScriptedLLM("Покупка на 14 900 ₽ не влезает, до минуса 13 333 ₽.", GOOD_14900)
     res = await run("Хочу купить телефон за 14 900 ₽", "impulse", llm)
-    assert res.result["text"] == GOOD_14900
+    assert res.result["text"].endswith(GOOD_14900)
     assert len(llm.calls) == 2
     assert "13333" in llm.calls[1][-1]["content"]  # подсказка называет выдуманное число
 
@@ -96,7 +105,7 @@ async def test_template_after_two_bad_answers():
 async def test_english_answer_is_retried():
     llm = ScriptedLLM("You cannot afford it.", GOOD_14900)
     res = await run("Хочу купить телефон за 14 900 ₽", "impulse", llm)
-    assert res.result["text"] == GOOD_14900
+    assert res.result["text"].endswith(GOOD_14900)
     assert "по-русски" in llm.calls[1][-1]["content"]
 
 
@@ -160,7 +169,8 @@ async def test_glossary_gets_source_text():
     )
     llm = ScriptedLLM(answer)
     res = await run("Что такое инфляция?", "glossary", llm, kb=kb)
-    assert res.result["text"] == answer
+    verdict = await verdict_of("Что такое инфляция?", "glossary", kb=kb)
+    assert res.result["text"] == f"{verdict} {answer}"
     assert "устойчивый рост общего уровня цен" in llm.calls[0][1]["content"]
     assert res.sources[0].url.startswith("https://fincult.info/")
 
