@@ -1,0 +1,6 @@
+date,amount,category,merchant
+2026-09-27,-540,food,Супермаркет
+27.09.2026,-99,subscriptions,Облачное хранилище
+2026-09-28,abc,transport,Такси
+2026-09-29,-300,food,
+2026-09-30,0,other,Нулевая операция

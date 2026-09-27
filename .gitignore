@@ -26,3 +26,6 @@ frontend/dist/
 .claude/settings.local.json
 # сборки для сервера (deploy/build-frontend.sh)
 .deploy/
+# фронтенд: кэш Vite и инкрементальная сборка TypeScript
+.vite/
+*.tsbuildinfo
