@@ -1,4 +1,4 @@
-"""OpenAI-совместимый провайдер: Ollama (qwen2.5:7b), OpenAI, YandexGPT-совместимый эндпоинт и другие.
+"""OpenAI-совместимый провайдер (LLM_PROVIDER=openai_compat): любой API в формате OpenAI.
 
 Ошибки сети, таймаут и ошибки сервера → LLMUnavailable (API отвечает 503).
 """
@@ -32,7 +32,7 @@ class OpenAICompatLLM:
         model: str,
         api_key: str = "",
         timeout: float = DEFAULT_TIMEOUT,
-        temperature: float = 0.3,
+        temperature: float = 0.2,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         http_client: httpx.AsyncClient | None = None,
     ):
@@ -42,7 +42,7 @@ class OpenAICompatLLM:
         self.answer_timeout = timeout  # ask() укладывает в него весь ответ вместе с повтором
         self._client = openai.AsyncOpenAI(
             base_url=base_url,
-            # Ollama ключ не проверяет, но клиент openai требует непустую строку.
+            # Клиент openai требует непустой ключ, даже если сервер его не проверяет.
             api_key=api_key or "not-needed",
             timeout=timeout,
             max_retries=0,

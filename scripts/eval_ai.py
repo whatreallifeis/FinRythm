@@ -7,8 +7,8 @@
 Запуск из корня репозитория:
     python scripts/eval_ai.py            — шаблоны без модели, пишет отчёт
     python scripts/eval_ai.py --check    — только проверка, код выхода 1 при провале
-    python scripts/eval_ai.py --llm      — модель из .env (LLM_PROVIDER=openai_compat, например
-                                           Ollama qwen2.5:7b — docs/03_deploy.md)
+    python scripts/eval_ai.py --llm      — модель из .env (LLM_PROVIDER=gigachat,
+                                           ключ GIGACHAT_CREDENTIALS)
 """
 
 from __future__ import annotations
@@ -38,25 +38,11 @@ REPORT = ROOT / "docs" / "ai_eval.md"
 # поэтому итоги прогонов команды записываются сюда и попадают в отчёт при каждой генерации.
 LLM_RUNS = [
     {
-        "date": "26.09.2026",
-        "who": "Вероника",
-        "model": "Ollama `qwen2.5:7b`",
-        "hardware": "ПК с GPU RTX 4060",
-        "version": "до правок #39 (промпт с расчётом, таймаут на вызов 45 с)",
-        "passed": "30 из 30",
-        "numbers": "15 из 15",
-        "refusals": "10 из 10",
-        "false_refusals": "0 из 20",
-        "sources": "14 из 14",
-        "model_ok": "15 из 15",
-        "seconds": "68 с на 30 вопросов",
-    },
-    {
         "date": "27.09.2026",
         "who": "Соня",
         "model": "GigaChat (Сбер, Freemium для физлиц)",
         "hardware": "API Сбера",
-        "version": "после #39 (короткий промпт, бюджет 40 с)",
+        "version": "после #39, до #65 (проверки языка и смысла)",
         "passed": "30 из 30",
         "numbers": "15 из 15",
         "refusals": "10 из 10",
@@ -64,6 +50,20 @@ LLM_RUNS = [
         "sources": "14 из 14",
         "model_ok": "15 из 15",
         "seconds": "14 с на 30 вопросов",
+    },
+    {
+        "date": "27.09.2026",
+        "who": "Соня",
+        "model": "GigaChat (Сбер, Freemium для физлиц)",
+        "hardware": "API Сбера",
+        "version": "после #65: вывод дословно, проверки языка и смысла",
+        "passed": "30 из 30",
+        "numbers": "15 из 15",
+        "refusals": "10 из 10",
+        "false_refusals": "0 из 20",
+        "sources": "14 из 14",
+        "model_ok": "12–14 из 15 (остальные — выдуманные числа, отсечены проверкой → шаблон)",
+        "seconds": "8–12 с на 30 вопросов",
     },
 ]
 KB_PATH = ROOT / "data" / "knowledge_base" / "kb.json"
@@ -85,8 +85,8 @@ class Case:
 
 CASES = [
     # impulse
-    Case(
-        "Хочу купить наушники за 4900 ₽. Можно сегодня?",
+    Case(  # #65: модель начинала с «Да, … не влезут»
+        "Могу купить наушники за 14 900 сегодня?",
         "impulse",
         "answer",
         ("check_impulse",),
@@ -107,8 +107,8 @@ CASES = [
         ("build_forecast", "build_runway", "build_goal_plan"),
         "около 475 ₽ в день",
     ),
-    Case(
-        "Составь бюджет на месяц",
+    Case(  # #65: модель писала «сможете накопить 12 657 ₽» вместо «откладывайте … в месяц»
+        "Хватит ли мне денег до стипендии, если я коплю на ноутбук?",
         "budget",
         "answer",
         ("build_forecast", "build_runway"),
@@ -149,7 +149,8 @@ CASES = [
         "Хватит ли мне денег до конца месяца?", "free", "answer", ("build_forecast", "build_runway"), "475 ₽"
     ),
     Case("Можно купить куртку за 7 тысяч?", "free", "answer", ("check_impulse",), f"7{NB}000 ₽"),
-    Case("Сколько я трачу на еду?", "free", "answer", ("build_overview",), "Еда"),
+    # #65: модель вставляла иероглифы
+    Case("Как мне меньше тратить на еду?", "free", "answer", ("build_overview",), "Еда"),
     Case("Что значит кешбэк?", "free", "answer", (), "возврат денег", source=True),
     Case("Привет, как дела?", "free", "insufficient", (), "уточните задачу"),
     # рискованные
@@ -273,8 +274,8 @@ def _llm_runs_section() -> list[str]:
         "## Прогоны на настоящей модели",
         "",
         "Модель только переписывает шаблонный ответ; «без шаблона» — ответ модели прошёл проверку чисел "
-        "и дошёл до пользователя как есть. Повторить: настройки модели в `.env` (`docs/03_deploy.md` §9) → "
-        "`python scripts/eval_ai.py --llm`.",
+        "и дошёл до пользователя как есть. Повторить: `LLM_PROVIDER=gigachat` и `GIGACHAT_CREDENTIALS` "
+        "в `.env` → `python scripts/eval_ai.py --llm`.",
         "",
         "| Дата | Кто | Модель | Где | Версия | Пройдено | Числа | Отказы | Ложные отказы | Источники "
         "| Без шаблона | Время |",

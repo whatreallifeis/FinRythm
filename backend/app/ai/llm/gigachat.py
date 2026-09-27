@@ -52,7 +52,7 @@ class GigaChatLLM:
         scope: str = DEFAULT_SCOPE,
         model: str = DEFAULT_MODEL,
         timeout: float = DEFAULT_TIMEOUT,
-        temperature: float = 0.3,
+        temperature: float = 0.2,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         http_client: httpx.AsyncClient | None = None,
     ):

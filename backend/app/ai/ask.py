@@ -22,6 +22,7 @@ from decimal import Decimal
 
 from app.ai import guardrails, prompts, scenarios
 from app.ai.amounts import extract_amount
+from app.ai.answer_check import language_problem, meaning_problem, split_verdict
 from app.ai.llm.base import LLMClient, LLMUnavailable
 from app.ai.number_check import allowed_numbers, check_numbers
 from app.ai.tools import KnowledgeSearch
@@ -74,9 +75,13 @@ def tidy_numbers(text: str) -> str:
 async def rewrite(llm: LLMClient, scenario_id: str, question: str, reply: scenarios.Reply) -> str:
     """Текст модели, прошедший проверку чисел, или шаблонный текст — всегда в пределах бюджета времени."""
     draft = reply.explained.result["text"]
+    # Вывод (первая фраза) остаётся дословно: модель пишет только продолжение (#65 — «Да, не влезут»).
+    verdict, rest = split_verdict(draft)
+    if not rest:
+        return draft
     messages = [
         {"role": "system", "content": prompts.system_prompt()},
-        {"role": "user", "content": prompts.user_message(scenario_id, question, draft)},
+        {"role": "user", "content": prompts.user_message(scenario_id, question, verdict, rest)},
     ]
     budget = float(getattr(llm, "answer_timeout", None) or ANSWER_TIMEOUT)
     deadline = time.monotonic() + budget
@@ -85,23 +90,27 @@ async def rewrite(llm: LLMClient, scenario_id: str, question: str, reply: scenar
         if attempt > 1 and remaining < MIN_RETRY_SECONDS:
             break
         try:
-            # wait_for отменяет запрос: соединение закрывается, Ollama не копит очередь брошенных ответов.
+            # wait_for отменяет запрос: соединение закрывается, модель не копит брошенные ответы.
             answer = await asyncio.wait_for(llm.complete(messages), timeout=remaining)
         except (TimeoutError, LLMUnavailable) as error:
             log.warning(
                 "llm unavailable: scenario=%s attempt=%d %s", scenario_id, attempt, type(error).__name__
             )
             break
-        text = _clean(answer.content)
-        if not re.search(r"[а-яё]", text, re.IGNORECASE):
+        continuation = _clean(answer.content)
+        text = f"{verdict} {continuation}"
+        sources = [question, draft, *reply.facts]
+        if not re.search(r"[а-яё]", continuation, re.IGNORECASE):
             hint = prompts.NOT_RUSSIAN
+        elif problem := language_problem(continuation, sources) or meaning_problem(continuation, draft):
+            hint = prompts.FIX.format(problem=problem)
         else:
             ok, bad = verify_numbers(reply, question, text)
             if ok:
                 return text
             hint = prompts.RETRY.format(numbers=", ".join(str(n) for n in bad))
-        log.warning("llm answer rejected: scenario=%s attempt=%d reason=%s", scenario_id, attempt, hint[:40])
-        messages += [{"role": "assistant", "content": text}, {"role": "user", "content": hint}]
+        log.warning("llm answer rejected: scenario=%s attempt=%d reason=%s", scenario_id, attempt, hint[:60])
+        messages += [{"role": "assistant", "content": continuation}, {"role": "user", "content": hint}]
     log.warning("llm template fallback: scenario=%s", scenario_id)
     return draft
 

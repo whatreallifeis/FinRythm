@@ -119,7 +119,8 @@ async def test_ask_with_gigachat():
     res = await ask(
         "Хочу купить телефон за 14 900 ₽", "impulse", load_demo_state(), DEMO_AS_OF, llm=llm_for(server)
     )
-    assert res.result["text"] == GOOD
+    assert res.result["text"].startswith("Сейчас покупка на 14")  # вердикт — дословно из шаблона
+    assert res.result["text"].endswith(GOOD)
     system = server.chat_calls[0]["body"]["messages"][0]
     assert system["role"] == "system"
 
