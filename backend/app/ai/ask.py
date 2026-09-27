@@ -1,29 +1,21 @@
-"""Точка входа помощника для POST /api/ask (сценарии ruina696, origin/front:docs/ai-scenarios.md).
+"""Точка входа помощника для POST /api/ask.
 
-API передаёт вопрос, scenarioId и данные пользователя, получает Explained с result = {"text": ...}.
-Порядок:
-1. Фильтр рискованных запросов — до расчётов и до модели.
-2. Сценарий: расчёты app.core и шаблонный текст вокруг их чисел.
-3. Если подключена модель (LLM_PROVIDER=openai_compat) и данных хватает — модель переписывает шаблон.
-4. Проверка чисел: каждое число текста должно быть в расчёте, вопросе или источнике. Провал — повторная
-   попытка с подсказкой, если на неё хватает времени, иначе шаблонный текст.
-На весь ответ модели — общий бюджет времени (LLM_TIMEOUT, по умолчанию 40 с). Не успела, ошибка сети или
-сервера — пользователь получает шаблонный ответ из тех же чисел, а не 503 (issue #39).
+С моделью (LLM_PROVIDER=gigachat и др.) каждое сообщение отвечает модель — app.ai.chat: она получает данные
+пользователя, посчитанные app.core, и справку из базы знаний; заготовленных ответов нет (#76).
+Без модели (LLM_PROVIDER=fake, тесты) — сценарии по шаблонам: фильтр рискованных запросов, расчёты app.core
+и текст вокруг их чисел.
 """
 
 from __future__ import annotations
 
-import asyncio
 import datetime as dt
 import logging
 import re
-import time
 from decimal import Decimal
 
-from app.ai import guardrails, prompts, scenarios
+from app.ai import chat, guardrails, scenarios
 from app.ai.amounts import extract_amount
-from app.ai.answer_check import language_problem, meaning_problem, split_verdict
-from app.ai.llm.base import LLMClient, LLMUnavailable
+from app.ai.llm.base import LLMClient
 from app.ai.number_check import allowed_numbers, check_numbers
 from app.ai.tools import KnowledgeSearch
 from app.core.money import fmt_num, fmt_rub
@@ -72,69 +64,6 @@ def tidy_numbers(text: str) -> str:
     return _UNGROUPED.sub(group, _MINUS.sub("−", text))
 
 
-def model_data(reply: scenarios.Reply) -> str:
-    """Посчитанные факты, которых нет в черновике, — чтобы модель ответила на сам вопрос (#74).
-
-    Черновик называет только три крупные категории; про такси или подписки модель без полного списка
-    ответить не может. Числа берутся из результата core — проверка чисел их пропустит.
-    """
-    lines: list[str] = []
-    for fact in reply.facts:
-        if isinstance(fact, dict) and fact.get("byCategory"):
-            cats = "; ".join(
-                f"{scenarios.label(c['category'])} — {fmt_rub(c['amount'])} ({scenarios.fmt_pct(c['share'])})"
-                for c in fact["byCategory"]
-            )
-            lines.append(f"Все категории расходов: {cats}.")
-    return " ".join(lines)
-
-
-async def rewrite(llm: LLMClient, scenario_id: str, question: str, reply: scenarios.Reply) -> str:
-    """Текст модели, прошедший проверку чисел, или шаблонный текст — всегда в пределах бюджета времени."""
-    draft = reply.explained.result["text"]
-    # Вывод (первая фраза) остаётся дословно: модель пишет только продолжение (#65 — «Да, не влезут»).
-    verdict, rest = split_verdict(draft)
-    if not rest:
-        return draft
-    messages = [
-        {"role": "system", "content": prompts.system_prompt()},
-        {
-            "role": "user",
-            "content": prompts.user_message(scenario_id, question, verdict, rest, data=model_data(reply)),
-        },
-    ]
-    budget = float(getattr(llm, "answer_timeout", None) or ANSWER_TIMEOUT)
-    deadline = time.monotonic() + budget
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        remaining = deadline - time.monotonic()
-        if attempt > 1 and remaining < MIN_RETRY_SECONDS:
-            break
-        try:
-            # wait_for отменяет запрос: соединение закрывается, модель не копит брошенные ответы.
-            answer = await asyncio.wait_for(llm.complete(messages), timeout=remaining)
-        except (TimeoutError, LLMUnavailable) as error:
-            log.warning(
-                "llm unavailable: scenario=%s attempt=%d %s", scenario_id, attempt, type(error).__name__
-            )
-            break
-        continuation = _clean(answer.content)
-        text = f"{verdict} {continuation}"
-        sources = [question, draft, *reply.facts]
-        if not re.search(r"[а-яё]", continuation, re.IGNORECASE):
-            hint = prompts.NOT_RUSSIAN
-        elif problem := language_problem(continuation, sources) or meaning_problem(continuation, draft):
-            hint = prompts.FIX.format(problem=problem)
-        else:
-            ok, bad = verify_numbers(reply, question, text)
-            if ok:
-                return text
-            hint = prompts.RETRY.format(numbers=", ".join(str(n) for n in bad))
-        log.warning("llm answer rejected: scenario=%s attempt=%d reason=%s", scenario_id, attempt, hint[:60])
-        messages += [{"role": "assistant", "content": continuation}, {"role": "user", "content": hint}]
-    log.warning("llm template fallback: scenario=%s", scenario_id)
-    return draft
-
-
 def not_buying_text(reply: scenarios.Reply) -> str:
     """«Если не покупать…» из того же расчёта покупки (§7.3: последствия обоих вариантов)."""
     check = next((f for f in reply.facts if isinstance(f, dict) and "todaySafeSpendBefore" in f), None)
@@ -158,6 +87,10 @@ async def ask(
     if scenario_id not in SCENARIO_IDS:
         raise ValueError(f"Неизвестный сценарий {scenario_id!r}. Доступны: {', '.join(SCENARIO_IDS)}.")
 
+    if uses_model(llm):
+        # Любое сообщение — модели: один собеседник, без заготовленных ответов (#76).
+        return await chat.answer(question, scenario_id, state, as_of, llm=llm, kb=kb)
+
     intent = guardrails.classify_risky(question)
     decide = intent == "decide_for_me" and extract_amount(question) is not None
     if intent is not None and not decide:
@@ -178,12 +111,4 @@ async def ask(
         # Шаблоны берут числа только из core — расхождение значит ошибку в шаблоне, её видно в логах.
         log.warning("number check failed: scenario=%s numbers=%s", scenario_id, [str(n) for n in bad])
 
-    # «Реши за меня» модели не отдаём: она убирала «решать вам» и писала «подождите» как указание (#39).
-    if uses_model(llm) and not decide and reply.rewrite:
-        effective = run_scenario
-        if effective == "free":  # сценарий выбран по словам вопроса, без модели
-            effective = scenarios.classify_free(question) or "free"
-            if effective == "free" and scenarios.asked_category(question):
-                effective = "expenses"
-        reply.explained.result["text"] = await rewrite(llm, effective, question, reply)
     return reply.explained
