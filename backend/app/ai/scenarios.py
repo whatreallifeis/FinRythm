@@ -109,6 +109,8 @@ class Reply:
 
     explained: Explained
     facts: list[Any] = field(default_factory=list)
+    # False — ответ не переписывается моделью (приветствие: чисел и вывода нет, переписывать нечего).
+    rewrite: bool = True
 
 
 def compose(
@@ -268,7 +270,48 @@ def expenses(question: str, state: UserState, as_of: dt.date) -> Explained | Rep
     overview = core_calls.overview(state, as_of)
     if bad := _not_sufficient([overview]):
         return bad
+    if category := asked_category(question):
+        text = category_text(overview.result, category) + " " + expenses_text(overview.result)
+        return compose(text, [overview])
     return compose(expenses_text(overview.result), [overview])
+
+
+# Слова в вопросе → категория операций. Вопрос «сколько я трачу на такси?» — про транспорт.
+CATEGORY_WORDS = {
+    "transport": ("такси", "транспорт", "проезд", "метро", "автобус", "каршеринг", "бензин", "электричк"),
+    "food": ("еда", "еду", "еды", "продукт", "кафе", "ресторан", "доставк", "обед", "кофе", "супермаркет"),
+    "subscriptions": ("подписк", "связь", "мобильн", "интернет", "музык", "стриминг"),
+    "entertainment": ("развлечен", "кино", "концерт", "игр", "клуб", "бар"),
+    "rent": ("аренд", "жиль", "квартир", "общежит", "коммунал"),
+    "health": ("здоров", "аптек", "лекарств", "врач", "спортзал"),
+    "education": ("учеб", "учёб", "образован", "курс", "книг"),
+}
+
+
+def asked_category(question: str) -> str | None:
+    """Категория, о которой спрашивают, или None (вопрос про расходы в целом)."""
+    q = question.casefold()
+    for category, words in CATEGORY_WORDS.items():
+        if any(word in q for word in words):
+            return category
+    return None
+
+
+def category_text(o: dict, category: str) -> str:
+    """Первая фраза ответа — про ту категорию, о которой спросили."""
+    period = f"с {human_date(o['periodFrom'])} по {human_date(o['periodTo'])}"
+    found = next((c for c in o.get("byCategory", []) if c["category"] == category), None)
+    if found is None:
+        return f"Трат в категории «{label(category)}» {period} нет."
+    text = (
+        f"На категорию «{label(category)}» {period} ушло {fmt_rub(found['amount'])} — "
+        f"{fmt_pct(found['share'])} всех расходов."
+    )
+    delta = found.get("deltaPercent")
+    if delta is not None and delta != 0:
+        more = "больше" if delta > 0 else "меньше"
+        text += f" Это на {abs(delta)}% {more}, чем в прошлом месяце."
+    return text
 
 
 def expenses_text(o: dict) -> str:
@@ -329,6 +372,121 @@ def glossary(
     )
 
 
+# ---------------------------------------------------------------- баланс
+
+
+def balance(question: str, state: UserState, as_of: dt.date) -> Explained | Reply:
+    """«Сколько у меня на счету?» — баланс и сколько можно тратить до поступления."""
+    if state.balance is None:
+        return insufficient([MISSING_BALANCE], core_calls.coverage(state, as_of))
+    text = f"На счёте сейчас {fmt_rub(state.balance)}."
+    parts: list[Explained] = []
+    if state.incomes:
+        runway = core_calls.runway(state, as_of)
+        if runway.data_quality.sufficient:
+            parts.append(runway)
+            rw = runway.result
+            if nxt := rw.get("nextIncome"):
+                text += (
+                    f" До поступления «{nxt['title']}» {days_word(nxt['daysUntil'])}, "
+                    f"безопасно тратить {fmt_rub(rw['todaySafeSpend'])} в день."
+                )
+    return compose(
+        text,
+        parts,
+        assumptions=["Баланс — тот, что указан в ваших данных; банковские счета не подключены."],
+        coverage_days=core_calls.coverage(state, as_of),
+        facts=[{"balance": str(state.balance)}],
+    )
+
+
+def looks_like_balance(question: str) -> bool:
+    q = question.casefold()
+    return any(
+        w in q
+        for w in (
+            "на счету",
+            "на счёте",
+            "на счете",
+            "баланс",
+            "сколько у меня денег",
+            "остаток на",
+            "сколько денег у меня",
+        )
+    )
+
+
+# ---------------------------------------------------------------- приветствие и разговор не по делу
+
+GREETING_WORDS = (
+    "привет",
+    "здравствуй",
+    "здравствуйте",
+    "добрый день",
+    "добрый вечер",
+    "доброе утро",
+    "хай",
+    "салют",
+)
+SMALLTALK_PHRASES = (
+    "как дела",
+    "как ты",
+    "кто ты",
+    "что ты умеешь",
+    "что умеешь",
+    "что ты можешь",
+    "спасибо",
+    "благодарю",
+    "пока",
+    "до свидания",
+)
+FINANCE_WORDS = (
+    "куп",
+    "трат",
+    "трач",
+    "денег",
+    "деньг",
+    "бюджет",
+    "стипенд",
+    "₽",
+    "руб",
+    "накоп",
+    "что такое",
+    "счет",
+    "счёт",
+)
+
+EXAMPLES = {
+    "impulse": "Можно купить наушники за 4 900 ₽?",
+    "budget": "Хватит ли мне денег до стипендии?",
+    "expenses": "Куда уходят мои деньги?",
+    "glossary": "Что такое инфляция?",
+    "free": "Сколько я трачу на еду?",
+}
+
+
+def looks_like_smalltalk(question: str) -> bool:
+    """Приветствие, «спасибо», «как дела» — без вопроса про деньги."""
+    q = question.casefold().strip(" !?.,)")
+    if any(ch.isdigit() for ch in q) or any(w in q for w in FINANCE_WORDS):
+        return False
+    return any(q.startswith(g) for g in GREETING_WORDS) or any(p in q for p in SMALLTALK_PHRASES)
+
+
+def smalltalk(scenario_id: str) -> Reply:
+    text = (
+        "Здравствуйте! Я помогаю разобраться с деньгами до стипендии: считаю, сколько можно тратить в день, "
+        "влезет ли покупка, куда уходят деньги и как копить на цель. "
+        f"Спросите, например: «{EXAMPLES.get(scenario_id, EXAMPLES['free'])}»"
+    )
+    explained = Explained(
+        result={"text": text},
+        limitations=COMMON_LIMITS,
+        data_quality=DataQuality(sufficient=True, missing=[], coverage_days=0),
+    )
+    return Reply(explained, rewrite=False)
+
+
 # ---------------------------------------------------------------- free
 
 
@@ -371,6 +529,7 @@ def classify_free(question: str) -> str | None:
     for scenario, check in (
         ("glossary", looks_like_glossary),
         ("impulse", looks_like_impulse),
+        ("balance", looks_like_balance),
         ("expenses", looks_like_expenses),
         ("budget", looks_like_budget),
     ):
@@ -395,8 +554,12 @@ def run_reply(
 def _dispatch(
     scenario_id: str, question: str, state: UserState, as_of: dt.date, kb: KnowledgeSearch | None
 ) -> Explained | Reply:
+    if looks_like_smalltalk(question):
+        return smalltalk(scenario_id)
     if scenario_id == "free":
         scenario_id = classify_free(question) or "clarify"
+        if scenario_id == "clarify" and asked_category(question):
+            scenario_id = "expenses"  # «а что с подписками?» — про траты в категории
     try:
         if scenario_id == "impulse":
             return impulse(question, state, as_of)
@@ -404,6 +567,8 @@ def _dispatch(
             return budget(question, state, as_of)
         if scenario_id == "expenses":
             return expenses(question, state, as_of)
+        if scenario_id == "balance":
+            return balance(question, state, as_of)
         if scenario_id == "glossary":
             return glossary(question, state, as_of, kb)
     except CoreNotReady:

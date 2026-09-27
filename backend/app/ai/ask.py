@@ -72,6 +72,23 @@ def tidy_numbers(text: str) -> str:
     return _UNGROUPED.sub(group, _MINUS.sub("−", text))
 
 
+def model_data(reply: scenarios.Reply) -> str:
+    """Посчитанные факты, которых нет в черновике, — чтобы модель ответила на сам вопрос (#74).
+
+    Черновик называет только три крупные категории; про такси или подписки модель без полного списка
+    ответить не может. Числа берутся из результата core — проверка чисел их пропустит.
+    """
+    lines: list[str] = []
+    for fact in reply.facts:
+        if isinstance(fact, dict) and fact.get("byCategory"):
+            cats = "; ".join(
+                f"{scenarios.label(c['category'])} — {fmt_rub(c['amount'])} ({scenarios.fmt_pct(c['share'])})"
+                for c in fact["byCategory"]
+            )
+            lines.append(f"Все категории расходов: {cats}.")
+    return " ".join(lines)
+
+
 async def rewrite(llm: LLMClient, scenario_id: str, question: str, reply: scenarios.Reply) -> str:
     """Текст модели, прошедший проверку чисел, или шаблонный текст — всегда в пределах бюджета времени."""
     draft = reply.explained.result["text"]
@@ -81,7 +98,10 @@ async def rewrite(llm: LLMClient, scenario_id: str, question: str, reply: scenar
         return draft
     messages = [
         {"role": "system", "content": prompts.system_prompt()},
-        {"role": "user", "content": prompts.user_message(scenario_id, question, verdict, rest)},
+        {
+            "role": "user",
+            "content": prompts.user_message(scenario_id, question, verdict, rest, data=model_data(reply)),
+        },
     ]
     budget = float(getattr(llm, "answer_timeout", None) or ANSWER_TIMEOUT)
     deadline = time.monotonic() + budget
@@ -159,9 +179,11 @@ async def ask(
         log.warning("number check failed: scenario=%s numbers=%s", scenario_id, [str(n) for n in bad])
 
     # «Реши за меня» модели не отдаём: она убирала «решать вам» и писала «подождите» как указание (#39).
-    if uses_model(llm) and not decide:
+    if uses_model(llm) and not decide and reply.rewrite:
         effective = run_scenario
         if effective == "free":  # сценарий выбран по словам вопроса, без модели
             effective = scenarios.classify_free(question) or "free"
+            if effective == "free" and scenarios.asked_category(question):
+                effective = "expenses"
         reply.explained.result["text"] = await rewrite(llm, effective, question, reply)
     return reply.explained

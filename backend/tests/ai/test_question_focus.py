@@ -1,0 +1,126 @@
+"""#74: помощник отвечает на сам вопрос, а не выдаёт один отчёт на любое сообщение."""
+
+import pytest
+from app.ai import ask, scenarios
+from app.ai.ask import model_data
+from app.core import DEMO_AS_OF, load_demo_state
+
+NB = " "
+
+
+async def run(question: str, scenario: str, llm=None):
+    return await ask(question, scenario, load_demo_state(), DEMO_AS_OF, llm=llm)
+
+
+@pytest.mark.parametrize("scenario", ["expenses", "budget", "impulse", "glossary", "free"])
+@pytest.mark.parametrize("question", ["привет", "Здравствуйте!", "спасибо", "Как дела?", "что ты умеешь?"])
+async def test_smalltalk_in_every_scenario(question, scenario):
+    res = await run(question, scenario)
+    assert res.data_quality.sufficient
+    text = res.result["text"]
+    assert text.startswith("Здравствуйте!")
+    assert "₽" not in text.split("Спросите")[0]  # не отчёт с числами
+    assert scenarios.EXAMPLES[scenario] in text
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Привет, можно купить наушники за 4900?",
+        "привет, сколько я трачу на еду?",
+        "Здравствуйте, что такое инфляция?",
+    ],
+)
+def test_greeting_with_real_question_is_not_smalltalk(question):
+    assert not scenarios.looks_like_smalltalk(question)
+
+
+async def test_smalltalk_does_not_call_model():
+    class Spy:
+        name = "spy"
+        calls = 0
+
+        async def complete(self, messages, tools=None):
+            Spy.calls += 1
+            raise AssertionError("модель не должна вызываться")
+
+    res = await run("привет", "expenses", Spy())
+    assert res.result["text"].startswith("Здравствуйте!")
+    assert Spy.calls == 0
+
+
+@pytest.mark.parametrize(
+    ("question", "category", "fragment"),
+    [
+        ("Сколько я трачу на такси?", "transport", "На категорию «Транспорт»"),
+        ("а что с подписками?", "subscriptions", "На категорию «Подписки и связь»"),
+        ("Сколько уходит на еду?", "food", "На категорию «Еда»"),
+        ("Сколько я трачу на аренду?", "rent", "На категорию «Жильё»"),
+    ],
+)
+async def test_expenses_answers_about_asked_category(question, category, fragment):
+    assert scenarios.asked_category(question) == category
+    res = await run(question, "expenses")
+    text = res.result["text"]
+    assert text.startswith(fragment), text
+    assert "всех расходов" in text.split(".")[0] or "трат нет" in text.split(".")[0]
+
+
+async def test_expenses_general_question_keeps_overview():
+    res = await run("Куда уходят мои деньги?", "expenses")
+    assert res.result["text"].startswith("С 1 сентября по 26 сентября расходы")
+
+
+async def test_free_category_question_goes_to_expenses():
+    res = await run("а что с подписками?", "free")
+    assert res.data_quality.sufficient
+    assert res.result["text"].startswith("На категорию «Подписки и связь»")
+
+
+@pytest.mark.parametrize(
+    "question", ["Сколько у меня на счету?", "какой у меня баланс", "сколько у меня денег сейчас?"]
+)
+async def test_balance_question(question):
+    res = await run(question, "free")
+    assert res.data_quality.sufficient
+    text = res.result["text"]
+    assert text.startswith(f"На счёте сейчас 18{NB}430 ₽.")
+    assert "«Стипендия»" in text and "475 ₽ в день" in text
+
+
+async def test_balance_unknown():
+    from app.models import UserState
+
+    res = await ask("Сколько у меня на счету?", "free", UserState(), DEMO_AS_OF)
+    assert not res.data_quality.sufficient
+    assert res.data_quality.missing == [scenarios.MISSING_BALANCE]
+
+
+async def test_model_gets_all_categories():
+    reply = scenarios.run_reply("expenses", "сколько на такси?", load_demo_state(), DEMO_AS_OF, None)
+    data = model_data(reply)
+    assert data.startswith("Все категории расходов:")
+    assert "Транспорт" in data and "Развлечения" in data
+
+
+async def test_model_answer_about_category_passes_number_check():
+    """Модель отвечает про категорию числами из полного списка — проверка чисел их пропускает."""
+    reply = scenarios.run_reply(
+        "expenses", "Сколько я трачу на подписки?", load_demo_state(), DEMO_AS_OF, None
+    )
+    subs = next(c for c in reply.facts[0]["byCategory"] if c["category"] == "subscriptions")
+    amount = scenarios.fmt_rub(subs["amount"])
+
+    class Model:
+        name = "scripted"
+
+        async def complete(self, messages, tools=None):
+            from app.ai.llm.base import LLMReply
+
+            assert "Все категории расходов" in messages[-1]["content"]
+            return LLMReply(
+                content=f"Подписки и связь — {amount}, это регулярный платёж каждый месяц.", tool_calls=[]
+            )
+
+    res = await run("Сколько я трачу на подписки?", "expenses", Model())
+    assert amount in res.result["text"]
