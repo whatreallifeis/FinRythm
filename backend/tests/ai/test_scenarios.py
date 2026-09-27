@@ -434,8 +434,16 @@ async def test_free_runs_detected_scenario(core, demo):
     assert core.called("check_impulse")
 
 
-async def test_free_asks_to_clarify(core, demo):
+async def test_free_greeting_gets_short_answer(core, demo):
+    """#74: на «привет» — короткое приветствие с подсказкой, а не отчёт и не «уточните задачу»."""
     res = await run("Привет, как дела?", "free", demo)
+    assert res.data_quality.sufficient
+    assert res.result["text"].startswith("Здравствуйте!")
+    assert not core.calls
+
+
+async def test_free_asks_to_clarify(core, demo):
+    res = await run("Помоги мне, пожалуйста", "free", demo)
     assert not res.data_quality.sufficient
     assert res.data_quality.missing == [scenarios.MISSING_TASK]
     assert res.data_quality.coverage_days == 57
