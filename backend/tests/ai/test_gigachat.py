@@ -115,25 +115,27 @@ async def test_network_error_is_llm_unavailable():
 
 
 async def test_ask_with_gigachat():
+    """#76: каждое сообщение отвечает модель — её текст доходит до пользователя как есть."""
     server = FakeGigaChat()
     res = await ask(
         "Хочу купить телефон за 14 900 ₽", "impulse", load_demo_state(), DEMO_AS_OF, llm=llm_for(server)
     )
-    assert res.result["text"].startswith("Сейчас покупка на 14")  # вердикт — дословно из шаблона
-    assert res.result["text"].endswith(GOOD)
-    system = server.chat_calls[0]["body"]["messages"][0]
-    assert system["role"] == "system"
+    assert res.result["text"] == GOOD
+    system, user = server.chat_calls[0]["body"]["messages"][:2]
+    assert system["role"] == "system" and "ФинРитм" in system["content"]
+    assert "Проверка траты 14" in user["content"]
 
 
-async def test_ask_falls_back_to_template_when_gigachat_down():
-    res = await ask(
-        "Хочу купить телефон за 14 900 ₽",
-        "impulse",
-        load_demo_state(),
-        DEMO_AS_OF,
-        llm=llm_for(FakeGigaChat(chat_status=429)),
-    )
-    assert res.result["text"].startswith("Сейчас покупка на 14")
+async def test_ask_raises_when_gigachat_down():
+    """Модель недоступна — API ответит 503 «помощник временно недоступен», без подменного шаблона."""
+    with pytest.raises(LLMUnavailable):
+        await ask(
+            "Хочу купить телефон за 14 900 ₽",
+            "impulse",
+            load_demo_state(),
+            DEMO_AS_OF,
+            llm=llm_for(FakeGigaChat(chat_status=429)),
+        )
 
 
 def test_factory(monkeypatch):
